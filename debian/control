@@ -1,0 +1,12 @@
+Source: hiveary-agent
+Maintainer: 'William Huba' <william@hiveary.com>, 'Zack Ontiveros' <zack@hiveary.com>
+Section: python
+Priority: optional
+Build-Depends: python-setuptools (>= 0.6b3), python-all (>= 2.7), debhelper (>= 7.4.3)
+Standards-Version: 3.9.1
+
+Package: hiveary-agent
+Architecture: all
+Depends: ${misc:Depends}, ${python:Depends}
+Description: An intelligent server monitoring solution that automatically finds anomalies.
+

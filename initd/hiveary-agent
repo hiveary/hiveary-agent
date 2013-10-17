@@ -1,0 +1,26 @@
+#!/bin/sh
+# Init script for hiveary-agent
+# The hiveary agent is already a daemon.
+
+DAEMON=hiveary-agent
+
+NAME=hiveary-agent
+DESC="Monitors system activity for hiveary.com"
+
+case "$1" in
+start)
+    hiveary-agent start
+;;
+status)
+    hiveary-agent status
+;;
+stop)
+    hiveary-agent stop
+;;
+restart)
+    hiveary-agent restart
+;;
+*)
+    echo "Usage: $0 {status|start|stop|restart}"
+    exit 1
+esac

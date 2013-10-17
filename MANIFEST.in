@@ -1,0 +1,6 @@
+include README.md
+include LICENSE
+include hiveary/ca-bundle.pem
+include hiveary.conf
+include initd/hiveary-agent
+include arch/hiveary-agent.service

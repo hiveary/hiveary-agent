@@ -1,0 +1,267 @@
+#!/usr/bin/env python
+"""
+Hiveary
+https://hiveary.com
+
+Licensed under Simplified BSD License (see LICENSE)
+(C) Hiveary, LLC 2013 all rights reserved
+"""
+
+import argparse
+import errno
+import hiveary
+from hiveary import controller
+from hiveary import paths
+import json
+import logging
+from logging import handlers
+import os
+import platform
+import subprocess
+import sys
+import time
+import traceback
+
+# Windows specific imports
+if subprocess.mswindows:
+  from pywintypes import error as pywintypes_error
+  from win32com.shell import shell, shellcon
+  import win32con
+  import winerror
+
+
+__version__ = hiveary.__version__
+CONFIG_FILENAME = 'hiveary.conf'
+
+current_system = platform.system()
+logger = logging.getLogger('hiveary_agent')
+
+
+def handle_exception(exc_type, exc_value, exc_traceback):
+  """Handle all uncaught exceptions by replacing sys.excepthook.
+
+  Args:
+    exc_type: The exception class.
+    exc_value: The exception instance.
+    exc_traceback: A traceback object of the object.
+  """
+
+  # traceback.format_exception returns a list, with each item ending in \n
+  logged_exception = ''.join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+  logger.critical('Uncaught error:\n%s', logged_exception)
+
+
+def elevate_privileges():
+  """On Windows Vista and later, try to get administrator privileges. This will
+  cause a new, elevated version of the agent to run in an independent process,
+  so the original should exit if elevate_privileges is successful.
+
+  Returns:
+    Boolean of whether escalation was successful.
+  """
+
+  # Check the version of Windows, since UAC only applies to Vista or higher
+  if platform.version() <= '5.2':
+    logger.info('Pre-Vista OS (UAC not required)')
+    return False
+
+  if shell.IsUserAnAdmin():
+    logger.info('Already an admin (UAC not required)')
+    return False
+
+  logger.info('Elevating privileges...')
+
+  executable, args = paths.find_executable()
+  params = '" "'.join(args)
+  if params:
+    # Parameters passed in to the execution function need to be quoted
+    params = '"%s"' % params
+
+  # Check if the agent is running in debug mode, and the command given at start.
+  # Only show the newly created window for debug purposes or if the stop command
+  # is given since this will show the result of the command.
+  if ('-d' in args or '--debug' in args) and 'stop' not in args:
+    show_val = win32con.SW_SHOW
+  else:
+    show_val = win32con.SW_HIDE
+
+  logger.debug('exe=%s parameters=%s', executable, params)
+
+  rc = None
+  try:
+    rc = shell.ShellExecuteEx(fMask=shellcon.SEE_MASK_NOCLOSEPROCESS,
+                              lpVerb='runas',
+                              lpFile=executable,
+                              lpParameters=params,
+                              nShow=show_val)
+  except pywintypes_error, e:
+    if e.winerror == winerror.ERROR_CANCELLED:
+      logger.warn('User denied the UAC dialog')
+      return False
+    raise
+
+  return rc is not None
+
+
+def maybe_escalated_stop(auditor_of_reality):
+  """Attempts to stop the daemon. In the event of an access denied, the permissions
+  of this process will be elevated first.
+
+  Args:
+    auditor_of_reality: A reference to the initialized daemon.
+  Raises:
+    OSError: An error occurred that was either not an access error, or was an access
+             error after trying to elevate permissions.
+  """
+
+  try:
+    auditor_of_reality.stop()
+  except OSError, err:
+    if err.errno == errno.EACCES:
+      logger.info('Access denied when stopping the process, attempting to elevate')
+
+      if current_system == 'Windows' and elevate_privileges():
+        # A new process will have been spawned as an admin, the current one can exit
+        sys.exit()
+      else:
+        logger.error('Unable to elevate permissions, the agent cannot be stopped')
+
+    # Either escalation failed or there isn't a way to attempt to escalate,
+    # so the agent cannot be stopped.
+    raise
+
+
+def main(args):
+  """Initialization function when the agent is started, regardless of any daemon
+  commands.
+
+  Args:
+    args: The parsed Namespace args from the command line.
+  """
+
+  # Setup logging
+  if args.debug:
+    loglevel = logging.DEBUG
+  else:
+    loglevel = logging.INFO
+
+  # Create console handle - this gets stored as agent.exe.log when compiled,
+  # and will go to stdout otherwise. Once daemonized this will go no where.
+  stream_handler = logging.StreamHandler()
+  stream_handler.setLevel(loglevel)
+  stream_handler.setFormatter(logging.Formatter(
+      '%(asctime)s [%(module)s:%(funcName)s:%(lineno)d] %(levelname)s: %(message)s'))
+  stream_handler.formatter.converter = time.gmtime
+  logger.addHandler(stream_handler)
+
+  logger.setLevel(loglevel)
+
+  if current_system == 'Windows':
+    # Make sure we have admin rights, and respawn with them if needed
+    # IsUserAnAdmin will always be true when running as a service.
+    win_admin = shell.IsUserAnAdmin()
+    if not win_admin and not args.command and elevate_privileges():
+      sys.exit(0)
+
+    # Put the config file and logs in a subdirectory of the common appdata folder.
+    conf_root_dir = os.path.join(paths.get_common_appdata_path(), 'Hiveary')
+    log_path = os.path.join(conf_root_dir, 'logs')
+  elif current_system == 'Linux' or current_system == 'Darwin':
+    log_path = '/var/log/hiveary'
+    conf_root_dir = '/etc/hiveary'
+  else:
+    logger.error('Can\'t read config file directory - unknown platform "%s"',
+                 current_system)
+    sys.exit(2)
+
+  # Create file handler to rotate logs every day and store 90 days of logs
+  logger.debug('Logging to %s', log_path)
+  if not os.path.exists(log_path):
+    logger.debug('Logging directoring "%s" does not exist, creating it',
+                 log_path)
+    os.makedirs(log_path, 0750)
+  file_handler = handlers.TimedRotatingFileHandler(
+      os.path.join(log_path, 'hiveary_agent.log'),
+      when='midnight', interval=1, backupCount=30, utc=True)
+  file_handler.setLevel(loglevel)
+  file_handler.setFormatter(logging.Formatter(
+      '%(asctime)s [%(module)s:%(funcName)s:%(lineno)d] %(levelname)s: %(message)s'))
+  file_handler.formatter.converter = time.gmtime
+  logger.addHandler(file_handler)
+
+  # Replace the default exception logger
+  sys.excepthook = handle_exception
+
+  # Load the config file
+  config_path = args.config_file or os.path.join(conf_root_dir, CONFIG_FILENAME)
+  logger.debug('Checking for config file at "%s"', config_path)
+  try:
+    with open(config_path, 'r') as file_desc:
+      stored_config = json.load(file_desc)
+  except (IOError, ValueError):
+    # File doesn't exist or doesn't contain JSON
+    logger.error('Can\'t read config file', exc_info=traceback.format_exc())
+    sys.exit(2)
+
+  # Check for bad config values
+  if (not stored_config or not 'username' in stored_config.keys()
+      or not 'access_token' in stored_config.keys()):
+    logger.error('Invalid config file')
+    sys.exit(2)
+
+  stored_config['filename'] = config_path
+
+  # Create the master controller as a daemon
+  auditor_of_reality = controller.RealityAuditor(vars(args), stored_config)
+  if args.command == 'start':
+    logger.info('Hiveary agent (%s) started with the following arguments: %s',
+                __version__, args)
+    logger.debug('Stored configurations values: %s', stored_config)
+
+    auditor_of_reality.start()
+  elif args.command == 'restart':
+    logger.info('Hiveary agent (%s) restarting with the following arguments: %s',
+                __version__, args)
+    logger.debug('Stored configurations values: %s', stored_config)
+
+    maybe_escalated_stop(auditor_of_reality)
+    auditor_of_reality.start()
+  elif args.command == 'stop':
+    logger.info('Stopping the agent')
+
+    maybe_escalated_stop(auditor_of_reality)
+  elif args.command == 'status':
+    auditor_of_reality.status()
+  else:
+    # Write the PID file again in case a forked process was spawned, such as
+    # during Windows UAC elevation
+    auditor_of_reality.write_pid(str(os.getpid()))
+    auditor_of_reality.run()
+
+
+if __name__ == '__main__':
+  # Parse the passed arguments
+  parser = argparse.ArgumentParser(description='Hiveary agent.')
+  parser.add_argument('command', choices=['start', 'stop', 'restart', 'status'],
+                      nargs='?')
+  parser.add_argument('-t', '--access_token',
+                      help='OAuth access token generated by the server.')
+  parser.add_argument('-s', '--server')
+  parser.add_argument('-c', '--config_file',
+                      help='Location of config file. (default: config.json)')
+  parser.add_argument('-u', '--update', action='store_true', default=False,
+                      help='Store the passed values in the configuration file')
+  parser.add_argument('-d', '--debug', action='store_true', default=False,
+                      help='Enable debug mode')
+  parser.add_argument('--disable_ssl_verify', action='store_true', default=False,
+                      help='Disable SSL certificate verification')
+  parser.add_argument('--amqp_server', help='Address of the AMQP server. '
+                      'Defaults to the subdomain "amqp" of the server address '
+                      '(ie amqp.hiveary.com).')
+  parser.add_argument('--ca_bundle', help='Location of the CA bundle for SSL '
+                      'verification. Has no effect when combined with '
+                      '--disable_ssl_verify.')
+  parser.add_argument('--username')
+
+  args = parser.parse_args()
+  main(args)
