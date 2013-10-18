@@ -1,3 +1,9 @@
+hiveary-agent (1.0.1-1) unstable; urgency=low
+
+  * Modified SSL certificates used.
+
+ -- Hiveary <info@hiveary.com>  Fri, 18 Oct 2013 15:46:02 -0800
+
 hiveary-agent (1.0.0-1) unstable; urgency=low
 
   * Initial release.

@@ -1,7 +1,7 @@
 # Maintainer: Hiveary <info@hiveary.com>
 
 pkgname=hiveary-agent
-pkgver=1.0.0
+pkgver=1.0.1
 pkgrel=1
 pkgdesc="An intelligent server monitoring solution that automatically finds anomalies."
 arch=(any)
@@ -18,7 +18,7 @@ options=(!emptydirs)
 install=
 source=("http://pypi.python.org/packages/source/h/${pkgname}/${pkgname}-${pkgver}.tar.gz"
         "hiveary-agent.service")
-md5sums=('466A2F2334B1CCF0AD9BF67C41B6A85E'
+md5sums=('4f596fd425acc54da101633a26a0d674'
          'fa758e32c73734805449895afa259771')
 
 package() {
