@@ -36,9 +36,7 @@ ReserveFile "authinfo.ini"
 ;Pages
 
 !insertmacro MUI_PAGE_WELCOME
-
 Page custom AuthInfoPage
-
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -98,6 +96,18 @@ Var ConsoleParentPID
 
 # Default section
 section "Default Section" SecDefault
+  # Stop the service if already exists
+  SimpleSC::ExistsService "HivearyAgent"
+  Pop $0  # returns an errorcode if the service doesn´t exists (<>0)/service exists (0)
+  IntCmp $0 0 ServiceExists EndServiceExists EndServiceExists
+  ServiceExists:
+    # Stop and remove the service
+    SimpleSC::StopService "HivearyAgent" 1 30
+    Pop $0 ; returns an errorcode (<>0) otherwise success (0)
+    SimpleSC::RemoveService "HivearyAgent"
+    Pop $0 ; returns an errorcode (<>0) otherwise success (0)
+  EndServiceExists:
+
   # Copy the installable files
   setOutPath $INSTDIR
   File "/oname=$TEMP\hiveary-agent.zip" "dist\hiveary-agent-*.win32.zip"
@@ -116,6 +126,9 @@ section "Default Section" SecDefault
   # instead of current user's Roaming folder
   SetShellVarContext all
 
+  CreateDirectory "$APPDATA\Hiveary"
+  CreateDirectory "$APPDATA\Hiveary\logs"
+
   # Read the input values
   ${If} ${Silent}
     ${GetParameters} $R0
@@ -127,8 +140,6 @@ section "Default Section" SecDefault
   ${EndIf}
 
   # Open the configuration JSON file and write to it
-  CreateDirectory "$APPDATA\Hiveary"
-  CreateDirectory "$APPDATA\Hiveary\logs"
   fileOpen $0 "$APPDATA\Hiveary\hiveary.conf" w
   fileWrite $0 '{"username": "$USERNAME", "access_token": "$OAUTH_SECRET"}'
   fileClose $0
@@ -154,6 +165,7 @@ section "Default Section" SecDefault
     Pop $0
     MessageBox MB_OK|MB_ICONSTOP "Service installation failed - Reason: $0"
   InstallServiceDone:
+
 
   # Start the service with the argument "/param1=true"
   SimpleSC::StartService "HivearyAgent" "-d" 30
