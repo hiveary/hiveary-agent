@@ -12,6 +12,7 @@ import servicemanager
 import subprocess
 import sys
 import thread
+import time
 import win32serviceutil
 import win32service
 import win32event
@@ -58,6 +59,8 @@ class ServiceEvent(object):
           if handler.agent.poll():
             servicemanager.LogErrorMsg('Agent unexpectedly terminated, restarting')
             handler.SvcDoRun()
+          else:
+            time.sleep(30)
         waiterLock.acquire()
 
 
