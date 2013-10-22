@@ -7,6 +7,7 @@ Licensed under Simplified BSD License (see LICENSE)
 (C) Hiveary, LLC 2013 all rights reserved
 """
 
+import inspect
 import json
 import logging
 import os
@@ -35,6 +36,7 @@ class RealityAuditor(daemon.Daemon):
   UPDATE_TIMER = 60 * 60 * 8  # How often to check for agent updates, in seconds
   PID_FILE = '/var/run/hiveary-agent.pid'  # Default location of the PID file
   REMOTE_HOST = 'hiveary.com'  # Default server to connect to
+  MONITORS_DIR = '/usr/lib/hiveary/' # Default location to find monitor modules
 
   def __init__(self, parsed_args, stored_config, logger=None):
     """Initialization when the agent is started.
@@ -45,6 +47,8 @@ class RealityAuditor(daemon.Daemon):
       logger: Optional, the logger that this class should log to.
     """
 
+    self.logger = logger or logging.getLogger('hiveary_agent.controller')
+
     # Check that the directory for the pid file exists, and if not then use
     # the same directory as the config file
     pid_file = stored_config.get('pid_file', self.PID_FILE)
@@ -53,12 +57,25 @@ class RealityAuditor(daemon.Daemon):
       filename = os.path.basename(pid_file)
       pid_file = os.path.join(directory, filename)
 
-    self.logger = logger or logging.getLogger('hiveary_agent.controller')
+    # Check if the monitors directory exists, otherwise, place it under the
+    # location of the config file
+    self.monitors_dir = stored_config.get('monitors_dir') or self.MONITORS_DIR
+    if not os.path.isdir(self.monitors_dir):
+      directory = os.path.dirname(stored_config['filename'])
+      self.monitors_dir = os.path.join(directory, 'monitors')
+      if not os.path.isdir(self.monitors_dir):
+        os.makedirs(sef.monitors_dir)
+
+    self.monitor_config = stored_config.get('monitors')
+    # Hiveary, by default, loads the resource monitor.
+    self.monitors = [monitors.ResourceMonitor()]
+    # Load all configured modules
+    self.load_monitors()
 
     # Get and possibly save optional configuration parameters. If the defaults
     # are used, they won't be saved.
     self.extra_options = {}
-    for option in ('monitor_backoff', 'pid_file', 'ca_bundle'):
+    for option in ('monitor_backoff', 'pid_file', 'ca_bundle', 'monitors_dir'):
       value = stored_config.get(option)
       if value:
         self.extra_options[option] = value
@@ -103,15 +120,54 @@ class RealityAuditor(daemon.Daemon):
                       self.network_controller.PING_TIMER, True,
                       self.network_controller.ping_pong)
 
-    # Setup the resource monitoring loops
-    monitor = monitors.ResourceMonitor(backoff=self.extra_options.get('monitor_backoff'))
+    # Start all of our monitors
+    for monitor in self.monitors:
+      try:
+        self.start_monitor(monitor)
+      except:
+        self.logger.warn('Monitor %s failed to start', monitor.NAME)
+
+    reactor.run()
+
+  def load_monitors(self):
+    """Loads all monitors from the config file. If it cannot find a configured module,
+    it will attempt to download one.
+    """
+
+    # Check that we have monitors enabled in the config, and know where to find them
+    if self.monitor_config and self.monitors_dir:
+      # Add the monitors dir to path so we can import monitors
+      sys.path.insert(0, self.monitors_dir)
+
+      # Import all of the monitors and add the instances to our monitor list.
+      for module, monitor_classes in self.monitor_config.iteritems():
+        try:
+          self.logger.info('Loading monitor %s from file %s', monitor_classes, module)
+          module = __import__(module, globals(), locals(), fromlist=monitor_classes)
+          for class_name in monitor_classes:
+            monitor_class = getattr(module, class_name)
+            # Make sure this class inherits the monitors.BaseMonitor class.
+            if monitors.BaseMonitor in inspect.getmro(monitor_class):
+              monitor = monitor_class()
+              self.monitors.append(monitor)
+            else:
+              self.logger.warn('Tried to load %s, but was not a HivearyMonitor', monitor_class)
+
+        except:
+          self.logger.error('Failed to load module %s', module)
+
+  def start_monitor(self, monitor):
+    """Starts a given monitor.
+
+    Args:
+      monitor: Instance of a monitor class
+    """
+
     self.logger.debug('Starting %s monitor data checks', monitor.NAME)
     self.network_controller.expected_values[monitor.NAME] = monitor.expected_values
     self.start_loop(monitor.MONITOR_TIMER, False, monitor.check_data)
-
     self.start_aggregation_loop(monitor)
 
-    reactor.run()
 
   def signal_handler(self, signum, stackframe):
     """Handles a SIGTERM or SIGINT sent to the process.
@@ -156,7 +212,7 @@ class RealityAuditor(daemon.Daemon):
     self.network_controller.ca_bundle = stored_config.get('ca_bundle')
 
     # Update the config file if needed
-    if args.update:
+    if args.get('update'):
       self.update_config_file(stored_config['filename'])
 
   def update_config_file(self, filename):

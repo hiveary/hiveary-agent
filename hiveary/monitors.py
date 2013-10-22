@@ -6,7 +6,7 @@ https://hiveary.com
 Licensed under Simplified BSD License (see LICENSE)
 (C) Hiveary, LLC 2013 all rights reserved
 
-Classes for collecting data.
+Base classes for collecting data.
 """
 
 from collections import defaultdict
@@ -233,3 +233,4 @@ class ResourceMonitor(IntervalMixin, BaseMonitor):
           self.alert_counters[resource]
       else:
         self.alert_counters[resource]
+
