@@ -81,6 +81,8 @@ class RealityAuditor(daemon.Daemon):
     in the foreground. All monitors are started from here and communication
     with the server is started."""
 
+    self.network_controller.ensure_internet_connection()
+
     if hasattr(sys, 'frozen'):
       # Setup the auto-updater
       update_path = 'https://{host}/versions'.format(host=self.REMOTE_HOST)
