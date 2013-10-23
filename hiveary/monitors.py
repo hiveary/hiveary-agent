@@ -26,6 +26,7 @@ class HivearyBaseMonitor(object):
   DEFAULT_ALERT_BACKOFF = 3600  # Delay between similar alerts, in seconds
   NAME = 'base'
   TYPE = None
+  SOURCES = []
 
   def __init__(self, backoff=None, logger=None):
     """Initialize the monitor.
@@ -50,9 +51,9 @@ class HivearyBaseMonitor(object):
       data: A dictionary of any data to be stored.
     """
 
-    usage = copy.copy(data)
-    usage['timestamp'] = time.time()
-    self.data_points.append(usage)
+    monitor_data = copy.copy(data)
+    monitor_data['timestamp'] = time.time()
+    self.data_points.append(monitor_data)
 
   def send_data(self, net_controller):
     """Sends the resource usage data points for the past time period.
@@ -74,6 +75,10 @@ class HivearyBaseMonitor(object):
     data['period'] = time_period.strftime('%H%M')
     data['day'] = time_period.weekday()
     data['host_id'] = net_controller.obj_id
+    data['monitor_name'] = self.NAME
+
+    if self.TYPE == 'usage':
+      data['monitor_sources'] = self.SOURCES
 
     for point in self.data_points:
       # Throw out any data points that are too old
