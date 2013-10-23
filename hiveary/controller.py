@@ -149,7 +149,7 @@ class RealityAuditor(daemon.Daemon):
           for class_name in monitor_classes:
             monitor_class = getattr(module, class_name)
             # Make sure this class inherits the monitors.BaseMonitor class.
-            if monitors.BaseMonitor in inspect.getmro(monitor_class):
+            if monitors.HivearyBaseMonitor in inspect.getmro(monitor_class):
               monitor = monitor_class()
               self.monitors.append(monitor)
             else:
