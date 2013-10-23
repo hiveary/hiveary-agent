@@ -373,13 +373,19 @@ def pull_services():
   return services
 
 
-def pull_processes():
+def pull_processes(top=None, top_number=5):
   """Retrieves information about active processes.
 
+  Args:
+    top: If provided, the `top_number` of processes for the matching
+        resource will be returned. Valid options are memory_percent or
+        cpu_percent
+    top_number: Number of top processes to return for the given resource. Only
+        valid when top is not None.
   Returns:
-    A list of all processes. Each process in the list is a dictionary with
-    unicode keys containing an large amount of detailed information
-    for the process. Example:
+    Returns a tuple of (all processes, top processes).
+    Each process in the list is a dictionary with nicode keys containing
+    a large amount of detailed information for the process. Example:
 
     [
       {
@@ -454,8 +460,30 @@ def pull_processes():
       else:
         raise
 
+  # Find the top processes
+  top_procs = []
+  if top:
+    full_top_procs = sorted(processes, key=lambda p: p[top], reverse=True)
+    top_procs = []
+
+    for i in xrange(0, top_number):
+      try:
+        proc = full_top_procs[i]
+      except IndexError:
+        break
+
+      # Pull out just a subset of information
+      proc_subset = {
+          'name': proc['name'],
+          'pid': proc['pid'],
+          top: proc[top],
+      }
+      top_procs.append(proc_subset)
+
+      logger.debug('Top processes for %s: %s', top, top_procs)
+
   logger.debug('Retrieved the running processes')
-  return processes
+  return processes, top_procs
 
 
 def pull_update_settings():
