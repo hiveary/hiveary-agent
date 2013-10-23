@@ -118,6 +118,7 @@ else:
       ('/etc/hiveary', ['hiveary.conf', 'README.md']),
       ('/etc/hiveary/init', ['initd/hiveary-agent']),
       ('/etc/hiveary/systemd', ['arch/hiveary-agent.service']),
+      ('/usr/lib/hiveary', ['monitors/resource.py']),
   ]
 
   setup(name=FROZEN_NAME,

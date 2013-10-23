@@ -66,9 +66,9 @@ class RealityAuditor(daemon.Daemon):
       if not os.path.isdir(self.monitors_dir):
         os.makedirs(sef.monitors_dir)
 
-    self.monitor_config = stored_config.get('monitors')
+    self.monitor_config = stored_config.get('monitors', {'resources': ['ResourceMonitor']})
     # Hiveary, by default, loads the resource monitor.
-    self.monitors = [monitors.ResourceMonitor()]
+    self.monitors = []
     # Load all configured modules
     self.load_monitors()
 
@@ -230,6 +230,7 @@ class RealityAuditor(daemon.Daemon):
         'access_token': self.network_controller.access_token,
         'username': self.network_controller.owner,
         'amqp_server': self.network_controller.amqp_server,
+        'monitors': {'resources': ['ResourceMonitor']},
     }
 
     config.update(self.extra_options)
