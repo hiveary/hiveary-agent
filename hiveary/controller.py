@@ -107,9 +107,18 @@ class RealityAuditor(daemon.Daemon):
     # Connect to the server
     self.network_controller.initialize_amqp()
 
+    # Start all of our monitors
+    for monitor in self.monitors:
+      try:
+        self.start_monitor(monitor)
+      except:
+        self.monitors.remove(monitor)
+        self.logger.warn('Monitor %s failed to start', monitor.NAME)
+
     # Send the first data dump
     data = sysinfo.pull_all()
     data['host_id'] = self.network_controller.obj_id
+    data['monitors'] = [monitor.NAME for monitor in self.monitors]
     reactor.callLater(self.INITIAL_DELAY,
                       self.network_controller.publish_info_message,
                       'startup',
@@ -119,13 +128,6 @@ class RealityAuditor(daemon.Daemon):
     reactor.callLater(self.INITIAL_DELAY, self.start_loop,
                       self.network_controller.PING_TIMER, True,
                       self.network_controller.ping_pong)
-
-    # Start all of our monitors
-    for monitor in self.monitors:
-      try:
-        self.start_monitor(monitor)
-      except:
-        self.logger.warn('Monitor %s failed to start', monitor.NAME)
 
     reactor.run()
 
