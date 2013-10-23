@@ -23,6 +23,7 @@ import subprocess
 import sys
 import time
 import traceback
+import urllib2
 
 # Windows specific imports
 if subprocess.mswindows:
@@ -74,6 +75,23 @@ class NetworkController(object):
     self.reactor = reactor
 
     self.expected_values = {}
+
+  def ensure_internet_connection(self, test_url='http://198.41.189.27'):
+    """Blocks until there is an active connection to the public internet.
+    Uses an IP address by default, since DNS lookups can cause urllib2 to
+    block for a while and eat up system resources while doing so."""
+
+    self.logger.debug('Checking for an active internet connection...')
+
+    while True:
+      try:
+        urllib2.urlopen(test_url, timeout=1)
+        break
+      except urllib2.URLError:
+        self.logger.debug('Test connection failed:\n', exc_info=True)
+        time.sleep(5)
+
+    self.logger.debug('Active connection found!')
 
   def initialize_amqp(self):
     """Method to establish an AMQP connection and consumers."""
@@ -207,6 +225,8 @@ class NetworkController(object):
       if attempt < self.MAX_BACKOFF_MULTIPLE:
         attempt += 1
 
+      self.ensure_internet_connection()
+
       return self.request_with_backoff(url, attempt, **kwargs)
 
   def publish_info_message(self, destination, message=''):
@@ -235,6 +255,7 @@ class NetworkController(object):
     """
 
     self.logger.error("Couldn't publish message: %r. Retry in %ds", exc, interval)
+    self.ensure_internet_connection()
 
   def ping_pong(self):
     """Function to alert the server that we're still alive and doing science."""
