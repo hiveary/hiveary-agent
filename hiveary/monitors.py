@@ -9,6 +9,7 @@ Licensed under Simplified BSD License (see LICENSE)
 Base classes for collecting data.
 """
 
+from collections import defaultdict
 import copy
 import datetime
 import json
@@ -43,6 +44,7 @@ class HivearyBaseMonitor(object):
 
     self.expected_values = {}
     self.data_points = []
+    self.send_alert = None
 
   def store_data_point(self, data):
     """Puts a single data point into the database.
@@ -145,4 +147,3 @@ class IntervalMixin(object):
     delta = (nsecs_passed // interval) * interval + interval - nsecs_passed
 
     return delta
-

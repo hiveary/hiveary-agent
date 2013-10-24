@@ -36,7 +36,7 @@ class RealityAuditor(daemon.Daemon):
   UPDATE_TIMER = 60 * 60 * 8  # How often to check for agent updates, in seconds
   PID_FILE = '/var/run/hiveary-agent.pid'  # Default location of the PID file
   REMOTE_HOST = 'hiveary.com'  # Default server to connect to
-  MONITORS_DIR = '/usr/lib/hiveary/' # Default location to find monitor modules
+  MONITORS_DIR = '/usr/lib/hiveary/'  # Default location to find monitor modules
 
   def __init__(self, parsed_args, stored_config, logger=None):
     """Initialization when the agent is started.
@@ -64,12 +64,13 @@ class RealityAuditor(daemon.Daemon):
       directory = os.path.dirname(stored_config['filename'])
       self.monitors_dir = os.path.join(directory, 'monitors')
       if not os.path.isdir(self.monitors_dir):
-        os.makedirs(sef.monitors_dir)
+        os.makedirs(self.monitors_dir)
 
-    self.monitor_config = stored_config.get('monitors', {'resources': ['ResourceMonitor']})
-    # Hiveary, by default, loads the resource monitor.
-    self.monitors = []
+    self.monitor_config = stored_config.get('monitors',
+                                            {'resources': ['ResourceMonitor']})
+
     # Load all configured modules
+    self.monitors = []
     self.load_monitors()
 
     # Get and possibly save optional configuration parameters. If the defaults
@@ -109,11 +110,7 @@ class RealityAuditor(daemon.Daemon):
 
     # Start all of our monitors
     for monitor in self.monitors:
-      try:
-        self.start_monitor(monitor)
-      except:
-        self.monitors.remove(monitor)
-        self.logger.warn('Monitor %s failed to start', monitor.NAME)
+      self.start_monitor(monitor)
 
     # Send the first data dump
     data = sysinfo.pull_all()
@@ -142,10 +139,11 @@ class RealityAuditor(daemon.Daemon):
       sys.path.insert(0, self.monitors_dir)
 
       # Import all of the monitors and add the instances to our monitor list.
-      for module, monitor_classes in self.monitor_config.iteritems():
+      for module_name, monitor_classes in self.monitor_config.iteritems():
         try:
-          self.logger.info('Loading monitor %s from file %s', monitor_classes, module)
-          module = __import__(module, globals(), locals(), fromlist=monitor_classes)
+          self.logger.info('Loading monitor %s from file %s', monitor_classes, module_name)
+          module = __import__(module_name, globals(), locals(),
+                              fromlist=monitor_classes)
           for class_name in monitor_classes:
             monitor_class = getattr(module, class_name)
             # Make sure this class inherits the monitors.BaseMonitor class.
@@ -154,7 +152,6 @@ class RealityAuditor(daemon.Daemon):
               self.monitors.append(monitor)
             else:
               self.logger.warn('Tried to load %s, but was not a HivearyMonitor', monitor_class)
-
         except:
           self.logger.error('Failed to load module %s', module)
 
@@ -167,9 +164,9 @@ class RealityAuditor(daemon.Daemon):
 
     self.logger.debug('Starting %s monitor data checks', monitor.NAME)
     self.network_controller.expected_values[monitor.NAME] = monitor.expected_values
+    monitor.send_alert = self.network_controller.publish_alert_message
     self.start_loop(monitor.MONITOR_TIMER, False, monitor.check_data)
     self.start_aggregation_loop(monitor)
-
 
   def signal_handler(self, signum, stackframe):
     """Handles a SIGTERM or SIGINT sent to the process.
@@ -230,7 +227,7 @@ class RealityAuditor(daemon.Daemon):
         'access_token': self.network_controller.access_token,
         'username': self.network_controller.owner,
         'amqp_server': self.network_controller.amqp_server,
-        'monitors': {'resources': ['ResourceMonitor']},
+        'monitors': self.monitor_config,
     }
 
     config.update(self.extra_options)
