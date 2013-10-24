@@ -480,7 +480,7 @@ def pull_processes(top=None, top_number=5):
       }
       top_procs.append(proc_subset)
 
-      logger.debug('Top processes for %s: %s', top, top_procs)
+    logger.debug('Top processes for %s: %s', top, top_procs)
 
   logger.debug('Retrieved the running processes')
   return processes, top_procs
