@@ -7,7 +7,6 @@ Licensed under Simplified BSD License (see LICENSE)
 (C) Hiveary, LLC 2013 all rights reserved
 """
 
-import copy
 import datetime
 import json
 import kombu
@@ -209,6 +208,19 @@ class NetworkController(object):
 
       return self.request_with_backoff(url, attempt, **kwargs)
 
+  def publish_alert_message(self, alert=None):
+    """Publishes an AMQP message to the alert queue, with some extra data.
+
+    Args:
+      alert: The alert to publish. This should be an instance of alerts.BaseAlert
+          and will be JSONified before being sent.
+    """
+
+    alert.host_id = self.obj_id
+    message = alert.__dict__
+
+    self.publish_info_message('alert', json.dumps(message))
+
   def publish_info_message(self, destination, message=''):
     """Method to publish an AMQP message.
 
@@ -320,7 +332,7 @@ class NetworkController(object):
       self.logger.info('Received new %s expected values: %s',
                        monitor_name, expected_values)
 
-      self.expected_values[monitor_name] = copy.copy(expected_values)
+      self.expected_values[monitor_name].update(expected_values)
     else:
       self.logger.error('Unable to perform requested task')
       data['status'] = 'NOT_IMPLEMENTED'

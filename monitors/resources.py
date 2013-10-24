@@ -12,11 +12,12 @@ Monitors the following sources:
 """
 
 from collections import defaultdict
-import json
+import copy
 import psutil
 import time
 
-from hiveary import monitors, sysinfo
+from hiveary import alerts, monitors, sysinfo
+
 
 class ResourceMonitor(monitors.IntervalMixin, monitors.HivearyUsageMonitor):
   """Monitors system resource data."""
@@ -57,7 +58,7 @@ class ResourceMonitor(monitors.IntervalMixin, monitors.HivearyUsageMonitor):
         'bytes_sent': (network_io.bytes_sent - self.total_net_io.bytes_sent) / time_diff,
         'bytes_recv': (network_io.bytes_recv - self.total_net_io.bytes_recv) / time_diff,
         'ram': ram_usage.percent,
-        'cpu': psutil.cpu_percent(),
+        'cpu': psutil.cpu_percent(interval=None),
     }
 
     extra_data = {
@@ -105,22 +106,30 @@ class ResourceMonitor(monitors.IntervalMixin, monitors.HivearyUsageMonitor):
         self.alert_counters[resource] += 1
         if self.alert_counters[resource] >= self.FLOP_PROTECTION_COUNTER:
           # Send an alert to the server
-          data = {
-              'threshold': threshold,
-              'current_usage': usage,
-              'host_id': self.obj_id,
-              'current_procesess': sysinfo.pull_processes(),
-              'resource': resource,
-              'timestamp': now,
-          }
+          if resource == 'ram':
+            top = 'memory_percent'
+          elif resource == 'cpu':
+            top = 'cpu_percent'
+          else:
+            top = None
 
-          # Add in any extra information for this resource and send it off
-          data.update(extra_data.get(resource, {}))
-          self.network_controller.publish_info_message('alert', json.dumps(data))
+          # Add in any extra information for this resource
+          procs, top_procs = sysinfo.pull_processes(top=top)
+          event_data = copy.copy(extra_data.get(resource, {}))
+          event_data['current_procesess'] = procs
+
+          if top_procs:
+            event_data['top_processes'] = top_procs
+
+          alert = alerts.UsageAlert(threshold=threshold, current_usage=usage,
+                                    source=resource, timestamp=now,
+                                    monitor=self.NAME, event_data=event_data)
+
+          if self.send_alert:
+            self.send_alert(alert)
 
           # Put a delay on the next alert to prevent a flood of alert messages
           self.alert_delays[resource] = now + self.backoff
           self.alert_counters[resource]
       else:
         self.alert_counters[resource]
-
