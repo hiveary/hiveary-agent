@@ -34,7 +34,8 @@ class ResourceMonitor(monitors.IntervalMixin, monitors.HivearyUsageMonitor):
     self.resource_list = ['ram', 'cpu', 'bytes_sent', 'bytes_recv']
     self.disks = sysinfo.find_valid_disks()
     self.resource_list.extend(self.disks)
-    self.SOURCES = self.resource_list
+    source_types = ['percent', 'percent', 'bytes', 'bytes'] + ['percent' for disk in self.disks]
+    self.SOURCES = zip(self.resource_list, source_types)
     self.logger.info('Monitoring the following resources: %s', self.resource_list)
 
     # Initialize the network information
