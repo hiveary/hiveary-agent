@@ -332,7 +332,10 @@ class NetworkController(object):
       self.logger.info('Received new %s expected values: %s',
                        monitor_id, expected_values)
 
-      self.expected_values[monitor_id].update(expected_values)
+      if monitor_id in self.expected_values:
+        self.expected_values[monitor_id].update(expected_values)
+      else:
+        self.logger.warn('Monitor "%s" is not enabled!', monitor_id)
     else:
       self.logger.error('Unable to perform requested task')
       data['status'] = 'NOT_IMPLEMENTED'
