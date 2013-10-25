@@ -11,41 +11,40 @@ Monitors the following sources:
   bytes_sent, bytes_recv, disk, cpu, ram
 """
 
-from collections import defaultdict
 import copy
 import psutil
 import time
 
-from hiveary import alerts, monitors, sysinfo
+from hiveary import monitors, sysinfo
 
 
-class ResourceMonitor(monitors.IntervalMixin, monitors.HivearyUsageMonitor):
+class ResourceMonitor(monitors.UsageMonitor):
   """Monitors system resource data."""
 
   MONITOR_TIMER = 10
   NAME = 'resources'
+  UID = '2c72af48-37ce-4ea1-9e53-9f081a6bcb6b'
 
   def __init__(self, *args, **kwargs):
-    super(ResourceMonitor, self).__init__(*args, **kwargs)
-
     # Expected resource usage parameters for the current time frame, stored as percentages
-    self.alert_counters = defaultdict(lambda: 0)
-    self.alert_delays = {}
-    self.resource_list = ['ram', 'cpu', 'bytes_sent', 'bytes_recv']
     self.disks = sysinfo.find_valid_disks()
 
-    sources = self.resource_list + ['disk_' + disk for disk in self.disks]
-    source_types = ['percent', 'percent', 'bytes', 'bytes'] + ['percent' for disk in self.disks]
-    self.SOURCES = zip(sources, source_types)
-
-    self.resource_list.extend(self.disks)
-    self.logger.info('Monitoring the following resources: %s', self.resource_list)
+    self.SOURCES = {
+        'ram': 'percent',
+        'cpu': 'percent',
+        'bytes_sent': 'bytes',
+        'bytes_recv': 'bytes',
+    }
+    for disk in self.disks:
+      self.SOURCES['disk_' + disk] = 'percent'
 
     # Initialize the network information
     self.total_net_io = psutil.network_io_counters()
     self.last_check = time.time()
 
-  def check_data(self):
+    super(ResourceMonitor, self).__init__(*args, **kwargs)
+
+  def get_data(self):
     """Gets the system's resource usage and sends an alert when it becomes too high."""
 
     now = time.time()
@@ -91,49 +90,33 @@ class ResourceMonitor(monitors.IntervalMixin, monitors.HivearyUsageMonitor):
     self.last_check = now
     self.total_net_io = network_io
 
-    # Store the values in our sqllite DB
-    self.store_data_point(current_usage)
+    # Store the values
+    current_usage['extra'] = extra_data
+    return current_usage
 
-    for resource in self.resource_list:
-      delay = self.alert_delays.get(resource)
-      threshold = self.expected_values.get(resource)
-      usage = current_usage.get(resource)
+  def extra_alert_data(self, source, data):
+    """Finds additional information that should be sent when an alert is fired
+    for this monitor.
 
-      if delay and delay <= now:
-        self.alert_delays.pop(delay)
-        delay = None
+    Args:
+      source: The source of the fired alert.
+      data: A dictionary of information specific to the monitored resources.
+    Returns:
+      A dictionary containing the additonal information to send with the alert.
+    """
 
-      if threshold and not delay and usage >= threshold:
-        self.logger.debug('Current %s usage at %s, threshold is %s', resource,
-                          usage, threshold)
+    if source == 'ram':
+      top = 'memory_percent'
+    elif source == 'cpu':
+      top = 'cpu_percent'
+    else:
+      top = None
 
-        self.alert_counters[resource] += 1
-        if self.alert_counters[resource] >= self.FLOP_PROTECTION_COUNTER:
-          # Send an alert to the server
-          if resource == 'ram':
-            top = 'memory_percent'
-          elif resource == 'cpu':
-            top = 'cpu_percent'
-          else:
-            top = None
+    procs, top_procs = sysinfo.pull_processes(top=top)
+    extra_data = copy.copy(data.get(source, {}))
+    extra_data['current_procesess'] = procs
 
-          # Add in any extra information for this resource
-          procs, top_procs = sysinfo.pull_processes(top=top)
-          event_data = copy.copy(extra_data.get(resource, {}))
-          event_data['current_procesess'] = procs
+    if top_procs:
+      extra_data['top_processes'] = top_procs
 
-          if top_procs:
-            event_data['top_processes'] = top_procs
-
-          alert = alerts.UsageAlert(threshold=threshold, current_usage=usage,
-                                    source=resource, timestamp=now,
-                                    monitor=self.NAME, event_data=event_data)
-
-          if self.send_alert:
-            self.send_alert(alert)
-
-          # Put a delay on the next alert to prevent a flood of alert messages
-          self.alert_delays[resource] = now + self.backoff
-          self.alert_counters[resource]
-      else:
-        self.alert_counters[resource]
+    return extra_data

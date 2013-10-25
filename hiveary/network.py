@@ -328,11 +328,11 @@ class NetworkController(object):
         data['status'] = 'FAILURE'
     elif task_name == 'expected_update':
       expected_values = client_task['command']['expected']
-      monitor_name = client_task['command']['monitor']
+      monitor_id = client_task['command']['monitor']
       self.logger.info('Received new %s expected values: %s',
-                       monitor_name, expected_values)
+                       monitor_id, expected_values)
 
-      self.expected_values[monitor_name].update(expected_values)
+      self.expected_values[monitor_id].update(expected_values)
     else:
       self.logger.error('Unable to perform requested task')
       data['status'] = 'NOT_IMPLEMENTED'

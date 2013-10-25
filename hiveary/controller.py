@@ -147,13 +147,13 @@ class RealityAuditor(daemon.Daemon):
           for class_name in monitor_classes:
             monitor_class = getattr(module, class_name)
             # Make sure this class inherits the monitors.BaseMonitor class.
-            if monitors.HivearyBaseMonitor in inspect.getmro(monitor_class):
+            if monitors.BaseMonitor in inspect.getmro(monitor_class):
               monitor = monitor_class()
               self.monitors.append(monitor)
             else:
               self.logger.warn('Tried to load %s, but was not a HivearyMonitor', monitor_class)
         except:
-          self.logger.error('Failed to load module %s', module)
+          self.logger.error('Failed to load module %s', module_name)
 
   def start_monitor(self, monitor):
     """Starts a given monitor.
@@ -162,10 +162,11 @@ class RealityAuditor(daemon.Daemon):
       monitor: Instance of a monitor class
     """
 
-    self.logger.debug('Starting %s monitor data checks', monitor.NAME)
-    self.network_controller.expected_values[monitor.NAME] = monitor.expected_values
+    self.logger.debug('Starting %s (%s) monitor data checks', monitor.NAME,
+                      monitor.UID)
+    self.network_controller.expected_values[monitor.UID] = monitor.expected_values
     monitor.send_alert = self.network_controller.publish_alert_message
-    self.start_loop(monitor.MONITOR_TIMER, False, monitor.check_data)
+    self.start_loop(monitor.MONITOR_TIMER, False, monitor.run_monitor)
     self.start_aggregation_loop(monitor)
 
   def signal_handler(self, signum, stackframe):
