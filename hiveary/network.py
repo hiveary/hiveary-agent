@@ -118,8 +118,28 @@ class NetworkController(object):
 
     self.logger.debug('Connecting to %s as user %s', self.amqp_server, self.user_id)
     self.amqp = kombu.Connection(self.amqp_server, self.user_id, self.amqp_password,
-                                 port=5671, ssl=ssl_options)
+                                 port=5671, ssl=ssl_options, insist=True)
+
+    self.amqp.ensure_connection(errback=self.amqp_errback, interval_max=60)
     self.logger.info('SSL-AMQP connection established')
+    self.reactor.callInThread(self.drain_events)
+
+  def amqp_reconnect(self):
+    """Handles re-establishing an AMQP connection after an error occurred.
+    In some error cases, the connection will be marked as connected despite
+    the error, so ensure_connection will not be enoguh to reconnnect.
+    Forcing a release first resolves this."""
+
+    self.amqp.release()
+    self.amqp.ensure_connection(errback=self.amqp_errback,
+                                interval_start=5,
+                                interval_step=5,
+                                interval_max=60)
+
+  def drain_events(self):
+    """Attempts to receive a message from the AMQP server and times out after
+    a short wait. Loops until the agent is marked as stopping. This allows us
+    to gracefully close the connection when waiting for messages."""
 
     # Setup the consumers
     task_queue = kombu.Queue('agent.{user}.tasks.{host}'.format(
@@ -127,21 +147,24 @@ class NetworkController(object):
     task_consumer = self.amqp.Consumer(task_queue, auto_declare=False,
                                        callbacks=[self.task_callback])
     task_consumer.consume()
-    self.reactor.callInThread(self.drain_events)
-
-  def drain_events(self):
-    """Attempts to receive a message from the AMQP server and times out after
-    a short wait. Loops until the agent is marked as stopping. This allows us
-    to gracefully close the connection when waiting for messages."""
 
     loop = kombu.common.eventloop(self.amqp, timeout=1, ignore_timeouts=True)
+    self.logger.info('Draining events from the server')
+
     while self.running:
       try:
         next(loop)
-      except:
+      except Exception, err:
         # Errors generated while the agent is stopping can be ignored
         if self.running:
-          raise
+          self.logger.error('AMQP error while draining events: %s', err)
+          self.amqp_reconnect()
+          break
+    else:
+      return
+
+    # If the loop broke while the agent is still running, try starting over
+    self.drain_events()
 
   def create_oauth_client(self):
     """Generates an OAuth client that handles the OAuth signature and header.
@@ -221,7 +244,7 @@ class NetworkController(object):
 
     self.publish_info_message('alert', json.dumps(message))
 
-  def publish_info_message(self, destination, message=''):
+  def publish_info_message(self, destination, message='', retry=True):
     """Method to publish an AMQP message.
 
     Args:
@@ -234,9 +257,16 @@ class NetworkController(object):
     exchange = kombu.Exchange('agent.{user}'.format(user=self.user_id))
     with self.amqp.Producer(exchange=exchange, routing_key=destination,
                             auto_declare=False) as producer:
-      publish = self.amqp.ensure(producer, producer.publish, errback=self.amqp_errback,
-                                 interval_start=5, interval_step=10, max_retries=5)
-      publish(message, user_id=self.user_id, timestamp=datetime.datetime.utcnow())
+      try:
+        producer.publish(message, user_id=self.user_id,
+                         timestamp=datetime.datetime.utcnow())
+      except Exception, err:
+        self.logger.error('Error while publishing to AMQP: %s', err)
+        self.amqp_reconnect()
+
+        # Retry publishing the message if requested
+        if retry:
+          self.publish_info_message(destination, message)
 
   def amqp_errback(self, exc, interval):
     """Error callback fired when there is a problem with the connection or channel.
@@ -246,7 +276,7 @@ class NetworkController(object):
       interval: Amount of time before the message is attempted again.
     """
 
-    self.logger.error("Couldn't publish message: %r. Retry in %ds", exc, interval)
+    self.logger.error('AMQP connection error: %r. Retrying in %ds', exc, interval)
 
   def ping_pong(self):
     """Function to alert the server that we're still alive and doing science."""
@@ -254,7 +284,7 @@ class NetworkController(object):
     # Send the ping
     data = {'host_id': self.obj_id}
     self.logger.debug('Sending ping to server with a body of: %s', data)
-    self.publish_info_message('ping', json.dumps(data))
+    self.publish_info_message('ping', json.dumps(data), retry=False)
 
   def task_callback(self, body, message):
     """Callback for when a message is received from the tasks queue.

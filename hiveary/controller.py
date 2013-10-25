@@ -182,7 +182,10 @@ class RealityAuditor(daemon.Daemon):
     # Mark the code as stopping and give timed loops a chance to gracefully close
     self.network_controller.running = False
     if self.network_controller.amqp:
-      self.network_controller.amqp.release()
+      try:
+        self.network_controller.amqp.release()
+      except:
+        pass
     reactor.callFromThread(reactor.stop)  # Stop twisted code when in the reactor loop
 
     # Clean up the daemon after the reactor is done
