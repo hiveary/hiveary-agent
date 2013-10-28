@@ -115,7 +115,7 @@ else:
   ]
 
   data_files = [
-      ('/etc/hiveary', ['hiveary.conf', 'README.md']),
+      ('/etc/hiveary', ['hiveary.conf.example', 'README.md']),
       ('/etc/hiveary/init', ['initd/hiveary-agent']),
       ('/etc/hiveary/systemd', ['arch/hiveary-agent.service']),
       ('/usr/lib/hiveary', ['monitors/resources.py']),

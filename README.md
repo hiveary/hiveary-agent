@@ -23,8 +23,7 @@ Configuration (Linux and OSX)
 
 1. First ensure you have signed up for an account at [https://hiveary.com](hiveary.com).
 2. Grab your existing access token or generate a new one at [https://hiveary.com/tokens](hiveary.com/tokens.)
-3. Set up _/etc/hiveary.conf_ with a json object containing your username and access_token, Ex:
-  `{"username": "ashketchum", "access_token": "ThatOauthTokenIJustGrabbed"}`
+3. Set up _/etc/hiveary.conf_ with a json object containing your username, access_token, and the enabled monitors. You can copy _/etc/hiveary.conf.example_ as a template.
 4. And thats it! All setup.
 
 
@@ -38,8 +37,7 @@ from [https://hiveary.com/agent/install](hiveary.com/agent/install.) Otherwise f
 2. Ensure you have signed up for an account at hiveary.com.
 3. Grab your existing access token or generate a new one at [https://hiveary.com/tokens](hiveary.com/tokens.)
 4. Create a Hiveary subfolder in the CommonAppDataFolder. On XP this should be _C:\Documents and Settings\All Users\Application Data\Hiveary_, and on Vista or higher it is _C:\ProgramData\Hiveary_.
-4. Set up _hiveary.conf_ in the new subfolder with a json object containing your username and access_token, Ex:
-  `{"username": "ashketchum", "access_token": "ThatOauthTokenIJustGrabbed"}`
+4. Set up _hiveary.conf_ in the new subfolder with a json object containing your username, access_token, and the enabled monitors. You can copy _/etc/hiveary.conf.example_ as a template.
 5. And thats it! All setup.
 
 

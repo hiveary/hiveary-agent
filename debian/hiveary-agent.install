@@ -1,2 +1,1 @@
-hiveary.conf etc/hiveary
 initd/hiveary-agent /etc/init.d
