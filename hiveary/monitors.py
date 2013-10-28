@@ -101,10 +101,7 @@ class BaseMonitor(object):
     data['period'] = time_period.strftime('%H%M')
     data['day'] = time_period.weekday()
     data['host_id'] = net_controller.obj_id
-    data['monitor_name'] = self.NAME
-
-    if self.TYPE == 'usage':
-      data['monitor_sources'] = self.SOURCES
+    data['id'] = self.UID
 
     for point in self.data_points:
       # Throw out any data points that are too old

@@ -115,7 +115,15 @@ class RealityAuditor(daemon.Daemon):
     # Send the first data dump
     data = sysinfo.pull_all()
     data['host_id'] = self.network_controller.obj_id
-    data['monitors'] = [monitor.NAME for monitor in self.monitors]
+    data['monitors'] = []
+    for monitor in self.monitors:
+      monitor_data = {
+          'name': monitor.NAME,
+          'sources': monitor.SOURCES,
+          'id': monitor.UID,
+          'type': monitor.TYPE,
+      }
+      data['monitors'].append(monitor_data)
     reactor.callLater(self.INITIAL_DELAY,
                       self.network_controller.publish_info_message,
                       'startup',
