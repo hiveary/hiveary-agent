@@ -21,6 +21,7 @@ if hasattr(sys, 'frozen'):
   import esky
 
 # Local imports
+from . import __version__
 from . import daemon
 from . import monitors
 from . import network
@@ -114,6 +115,7 @@ class RealityAuditor(daemon.Daemon):
 
     # Send the first data dump
     data = sysinfo.pull_all()
+    data['version'] = __version__
     data['host_id'] = self.network_controller.obj_id
     data['monitors'] = []
     for monitor in self.monitors:
