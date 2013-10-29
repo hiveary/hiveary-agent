@@ -176,7 +176,13 @@ class RealityAuditor(daemon.Daemon):
                       monitor.UID)
     self.network_controller.expected_values[monitor.UID] = monitor.expected_values
     monitor.send_alert = self.network_controller.publish_alert_message
-    self.start_loop(monitor.MONITOR_TIMER, False, monitor.run_monitor)
+
+    # Check if the monitor should run in a loop
+    if monitor.MONITOR_TIMER is not None:
+      self.start_loop(monitor.MONITOR_TIMER, False, monitor.run)
+    else:
+      reactor.callInThread(monitor.run)
+
     self.start_aggregation_loop(monitor)
 
   def signal_handler(self, signum, stackframe):

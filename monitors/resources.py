@@ -18,7 +18,7 @@ import time
 from hiveary import monitors, sysinfo
 
 
-class ResourceMonitor(monitors.UsageMonitor):
+class ResourceMonitor(monitors.PollingMixin, monitors.UsageMonitor):
   """Monitors system resource data."""
 
   MONITOR_TIMER = 10
