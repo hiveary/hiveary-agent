@@ -116,13 +116,11 @@ class BaseMonitor(object):
     net_controller.publish_info_message(self.TYPE, json.dumps(data))
     self.data_points = []
 
-  def run_monitor(self):
+  def run(self):
     """Wrapper call to get the data for monitored sources and check it against
     any set alert values."""
 
-    data = self.get_data()
-    self.store_data_point(data)
-    self.alert_check(data)
+    pass
 
   def alert_check(self, data):
     """Checks the monitored data to determine if an alert should be created.
@@ -156,6 +154,19 @@ class BaseMonitor(object):
     """
 
     pass
+
+
+class PollingMixin(object):
+  """Mixin class for monitors that expect to regularly poll their data sources
+  for new data."""
+
+  def run(self):
+    """Wrapper call to get the data for monitored sources and check it against
+    any set alert values."""
+
+    data = self.get_data()
+    self.store_data_point(data)
+    self.alert_check(data)
 
 
 class IntervalMixin(object):

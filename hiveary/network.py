@@ -96,7 +96,7 @@ class NetworkController(object):
       sys.exit(409)
     else:
       self.logger.error('Failed to retrieve AMQP credentials. Status: %s',
-                   resp.status)
+                        resp.status)
       sys.exit(resp.status)
 
     if self.obj_id is None or self.amqp_password is None or self.user_id is None:
