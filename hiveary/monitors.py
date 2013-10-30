@@ -236,7 +236,7 @@ class UsageMonitor(IntervalMixin, BaseMonitor):
                   'type': self.TYPE,
                   'source': source,
                   'source_type': self.SOURCES[source],
-              }
+              },
               'event_data': self.extra_alert_data(source, extra) or {},
           }
           self.send_alert(alert)
