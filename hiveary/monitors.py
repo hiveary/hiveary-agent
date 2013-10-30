@@ -229,12 +229,13 @@ class UsageMonitor(IntervalMixin, BaseMonitor):
           alert = {
               'threshold': threshold,
               'current_usage': usage,
-              'source': source,
               'timestamp': now,
               'monitor': {
                   'id': self.UID,
                   'name': self.NAME,
                   'type': self.TYPE,
+                  'source': source,
+                  'source_type': self.SOURCES[source],
               }
               'event_data': self.extra_alert_data(source, extra) or {},
           }
