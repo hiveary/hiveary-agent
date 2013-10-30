@@ -1,0 +1,3 @@
+*.pyc
+hiveary.conf
+hiveary-agent.pid
