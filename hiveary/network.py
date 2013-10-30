@@ -239,10 +239,8 @@ class NetworkController(object):
           and will be JSONified before being sent.
     """
 
-    alert.host_id = self.obj_id
-    message = alert.__dict__
-
-    self.publish_info_message('alert', json.dumps(message))
+    alert['host_id'] = self.obj_id
+    self.publish_info_message('alert', json.dumps(alert))
 
   def publish_info_message(self, destination, message='', retry=True):
     """Method to publish an AMQP message.
