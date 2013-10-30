@@ -220,7 +220,9 @@ class UsageMonitor(IntervalMixin, BaseMonitor):
               'current_usage': usage,
               'source': source,
               'timestamp': now,
-              'monitor': self.NAME,
+              'monitor': self.UID,
+              'monitor_name': self.NAME,
+              'monitor_type': self.TYPE,
               'event_data': self.extra_alert_data(source, extra) or {},
           }
           self.send_alert(alert)
