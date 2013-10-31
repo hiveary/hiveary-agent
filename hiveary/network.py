@@ -124,6 +124,16 @@ class NetworkController(object):
     self.logger.info('SSL-AMQP connection established')
     self.reactor.callInThread(self.drain_events)
 
+  def stop_amqp(self):
+    """Stops listening for AMQP messages and releases the connection."""
+
+    self.running = False
+    if self.amqp:
+      try:
+        self.amqp.release()
+      except:
+        pass
+
   def amqp_reconnect(self):
     """Handles re-establishing an AMQP connection after an error occurred.
     In some error cases, the connection will be marked as connected despite
@@ -144,9 +154,13 @@ class NetworkController(object):
     # Setup the consumers
     task_queue = kombu.Queue('agent.{user}.tasks.{host}'.format(
                              user=self.user_id, host=self.obj_id))
-    task_consumer = self.amqp.Consumer(task_queue, auto_declare=False,
-                                       callbacks=[self.task_callback])
-    task_consumer.consume()
+    try:
+      task_consumer = self.amqp.Consumer(task_queue, auto_declare=False,
+                                         callbacks=[self.task_callback])
+      task_consumer.consume()
+    except:
+      if self.running:
+        raise
 
     loop = kombu.common.eventloop(self.amqp, timeout=1, ignore_timeouts=True)
     self.logger.info('Draining events from the server')

@@ -237,6 +237,7 @@ def main(args):
     # during Windows UAC elevation
     auditor_of_reality.write_pid(str(os.getpid()))
     auditor_of_reality.run()
+    auditor_of_reality.delpid()
 
 
 if __name__ == '__main__':
