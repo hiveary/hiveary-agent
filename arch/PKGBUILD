@@ -25,8 +25,5 @@ package() {
   cd ${srcdir}/${pkgname}-${pkgver}
   python2 setup.py install --root="${pkgdir}/" --optimize=1
   install -Dm644 ${srcdir}/hiveary-agent.service ${pkgdir}/usr/lib/systemd/system/hiveary-agent.service
-
-  mkdir -p ${pkgdir}/etc/hiveary/
-  cp hiveary.conf ${pkgdir}/etc/hiveary/
 }
 

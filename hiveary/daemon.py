@@ -39,26 +39,38 @@ class Daemon(object):
     self.term_timeout = term_timeout
     self.exec_params = [executable] + args
 
-  def daemonize(self):
+  def fork(self, detached=True, exit=True):
     """Do the UNIX double-fork magic, see Stevens' "Advanced
     Programming in the UNIX Environment" for details (ISBN 0201563177)
     http://www.erlenstar.demon.co.uk/unix/faq_2.html#SEC16
+    On Windows we can just create a detached subprocess.
 
-    On Windows we can just create a detached subprocess."""
+    Args:
+      detached: Whether the new process should be started completely independantly,
+          or hook into the current stdin/stderr/stdout.
+      exit: Whether to exit after forking. This should be true unless the process
+          will exit somewhere else.
+    """
 
     if platform.system() == 'Windows':
+      # Clean out the params so that the forked process starts normally, without
+      # trying to daemonize itself again
       if 'start' in self.exec_params:
         self.exec_params.remove('start')
       if 'restart' in self.exec_params:
         self.exec_params.remove('restart')
 
-      proc = subprocess.Popen(self.exec_params,
-                              creationflags=win32con.DETACHED_PROCESS,
-                              close_fds=True)
+      if detached:
+        proc = subprocess.Popen(self.exec_params,
+                                creationflags=win32con.DETACHED_PROCESS,
+                                close_fds=True)
+      else:
+        proc = subprocess.Popen(self.exec_params)
 
       # write pidfile and exit
       self.write_pid(proc.pid)
-      sys.exit()
+      if exit:
+        sys.exit()
     else:
       try:
         pid = os.fork()
@@ -120,7 +132,7 @@ class Daemon(object):
       sys.exit(1)
 
     # Start the daemon
-    self.daemonize()
+    self.fork(detached=True, exit=True)
     self.run()
 
   def stop(self):

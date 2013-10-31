@@ -7,6 +7,7 @@ Licensed under Simplified BSD License (see LICENSE)
 (C) Hiveary, LLC 2013 all rights reserved
 """
 
+import inspect
 import json
 import logging
 import os
@@ -20,6 +21,7 @@ if hasattr(sys, 'frozen'):
   import esky
 
 # Local imports
+from . import __version__
 from . import daemon
 from . import monitors
 from . import network
@@ -35,6 +37,7 @@ class RealityAuditor(daemon.Daemon):
   UPDATE_TIMER = 60 * 60 * 8  # How often to check for agent updates, in seconds
   PID_FILE = '/var/run/hiveary-agent.pid'  # Default location of the PID file
   REMOTE_HOST = 'hiveary.com'  # Default server to connect to
+  MONITORS_DIR = '/usr/lib/hiveary/'  # Default location to find monitor modules
 
   def __init__(self, parsed_args, stored_config, logger=None):
     """Initialization when the agent is started.
@@ -45,6 +48,8 @@ class RealityAuditor(daemon.Daemon):
       logger: Optional, the logger that this class should log to.
     """
 
+    self.logger = logger or logging.getLogger('hiveary_agent.controller')
+
     # Check that the directory for the pid file exists, and if not then use
     # the same directory as the config file
     pid_file = stored_config.get('pid_file', self.PID_FILE)
@@ -53,12 +58,26 @@ class RealityAuditor(daemon.Daemon):
       filename = os.path.basename(pid_file)
       pid_file = os.path.join(directory, filename)
 
-    self.logger = logger or logging.getLogger('hiveary_agent.controller')
+    # Check if the monitors directory exists, otherwise, place it under the
+    # location of the config file
+    self.monitors_dir = stored_config.get('monitors_dir') or self.MONITORS_DIR
+    if not os.path.isdir(self.monitors_dir):
+      directory = os.path.dirname(stored_config['filename'])
+      self.monitors_dir = os.path.join(directory, 'monitors')
+      if not os.path.isdir(self.monitors_dir):
+        os.makedirs(self.monitors_dir)
+
+    self.monitor_config = stored_config.get('monitors')
+    if self.monitor_config is None:
+      self.monitor_config = {'resources': ['ResourceMonitor']}
+      parsed_args['update'] = True
+
+    self.monitors = []
 
     # Get and possibly save optional configuration parameters. If the defaults
     # are used, they won't be saved.
     self.extra_options = {}
-    for option in ('monitor_backoff', 'pid_file', 'ca_bundle'):
+    for option in ('monitor_backoff', 'pid_file', 'ca_bundle', 'monitors_dir'):
       value = stored_config.get(option)
       if value:
         self.extra_options[option] = value
@@ -85,16 +104,34 @@ class RealityAuditor(daemon.Daemon):
 
     if hasattr(sys, 'frozen'):
       # Setup the auto-updater
-      update_path = 'https://{host}/versions'.format(host=self.REMOTE_HOST)
+      update_path = 'https://{host}/versions'.format(host=self.network_controller.remote_host)
+      self.app = esky.Esky(sys.executable, update_path)
       reactor.callLater(0, self.start_loop, self.UPDATE_TIMER, True,
-                        self.auto_agent_update, update_path)
+                        self.auto_agent_update)
+
+    # Load all monitors
+    self.load_monitors()
 
     # Connect to the server
     self.network_controller.initialize_amqp()
 
+    # Start all of our monitors
+    for monitor in self.monitors:
+      self.start_monitor(monitor)
+
     # Send the first data dump
     data = sysinfo.pull_all()
+    data['version'] = __version__
     data['host_id'] = self.network_controller.obj_id
+    data['monitors'] = []
+    for monitor in self.monitors:
+      monitor_data = {
+          'name': monitor.NAME,
+          'sources': monitor.SOURCES,
+          'id': monitor.UID,
+          'type': monitor.TYPE,
+      }
+      data['monitors'].append(monitor_data)
     reactor.callLater(self.INITIAL_DELAY,
                       self.network_controller.publish_info_message,
                       'startup',
@@ -105,15 +142,64 @@ class RealityAuditor(daemon.Daemon):
                       self.network_controller.PING_TIMER, True,
                       self.network_controller.ping_pong)
 
-    # Setup the resource monitoring loops
-    monitor = monitors.ResourceMonitor(backoff=self.extra_options.get('monitor_backoff'))
-    self.logger.debug('Starting %s monitor data checks', monitor.NAME)
-    self.network_controller.expected_values[monitor.NAME] = monitor.expected_values
-    self.start_loop(monitor.MONITOR_TIMER, False, monitor.check_data)
+    reactor.run()
+
+  def load_monitors(self):
+    """Loads all monitors from the config file. If it cannot find a configured module,
+    it will attempt to download one.
+    """
+
+    # Check that we have monitors enabled in the config, and know where to find them
+    if self.monitor_config and self.monitors_dir:
+      # Add the monitors dir to path so we can import monitors
+      self.logger.info('Loading monitors from %s', self.monitors_dir)
+      sys.path.insert(0, self.monitors_dir)
+
+      # When frozen, the monitors included with the current version also
+      # need to be loaded
+      if hasattr(sys, 'frozen'):
+        frozen_monitors_dir = os.path.join(os.path.dirname(sys.executable),
+                                           'monitors')
+        sys.path.insert(0, frozen_monitors_dir)
+        self.logger.debug('Also loading frozen monitors from: %s',
+                          frozen_monitors_dir)
+
+      # Import all of the monitors and add the instances to our monitor list.
+      for module_name, monitor_classes in self.monitor_config.iteritems():
+        try:
+          self.logger.info('Loading monitor %s from file %s', monitor_classes, module_name)
+          module = __import__(module_name, globals(), locals(),
+                              fromlist=monitor_classes)
+          for class_name in monitor_classes:
+            monitor_class = getattr(module, class_name)
+            # Make sure this class inherits the monitors.BaseMonitor class.
+            if monitors.BaseMonitor in inspect.getmro(monitor_class):
+              monitor = monitor_class()
+              self.monitors.append(monitor)
+            else:
+              self.logger.warn('Tried to load %s, but was not a HivearyMonitor', monitor_class)
+        except:
+          self.logger.error('Failed to load module %s', module_name)
+
+  def start_monitor(self, monitor):
+    """Starts a given monitor.
+
+    Args:
+      monitor: Instance of a monitor class
+    """
+
+    self.logger.debug('Starting %s (%s) monitor data checks', monitor.NAME,
+                      monitor.UID)
+    self.network_controller.expected_values[monitor.UID] = monitor.expected_values
+    monitor.send_alert = self.network_controller.publish_alert_message
+
+    # Check if the monitor should run in a loop
+    if monitor.MONITOR_TIMER is not None:
+      self.start_loop(monitor.MONITOR_TIMER, False, monitor.run)
+    else:
+      reactor.callInThread(monitor.run)
 
     self.start_aggregation_loop(monitor)
-
-    reactor.run()
 
   def signal_handler(self, signum, stackframe):
     """Handles a SIGTERM or SIGINT sent to the process.
@@ -125,11 +211,8 @@ class RealityAuditor(daemon.Daemon):
 
     self.logger.info("Received signal: %s", signum)
 
-    # Mark the code as stopping and give timed loops a chance to gracefully close
-    self.network_controller.running = False
-    if self.network_controller.amqp:
-      self.network_controller.amqp.release()
-    reactor.callFromThread(reactor.stop)  # Stop twisted code when in the reactor loop
+    self.network_controller.stop_amqp()
+    reactor.callFromThread(reactor.stop)
 
     # Clean up the daemon after the reactor is done
     reactor.addSystemEventTrigger('after', 'shutdown', self.delpid)
@@ -158,7 +241,7 @@ class RealityAuditor(daemon.Daemon):
     self.network_controller.ca_bundle = stored_config.get('ca_bundle')
 
     # Update the config file if needed
-    if args.update:
+    if args.get('update'):
       self.update_config_file(stored_config['filename'])
 
   def update_config_file(self, filename):
@@ -174,6 +257,7 @@ class RealityAuditor(daemon.Daemon):
         'access_token': self.network_controller.access_token,
         'username': self.network_controller.owner,
         'amqp_server': self.network_controller.amqp_server,
+        'monitors': self.monitor_config,
     }
 
     config.update(self.extra_options)
@@ -222,28 +306,28 @@ class RealityAuditor(daemon.Daemon):
   def restart(self):
     """Setup an event to restart the agent after the reactor stops."""
 
-    reactor.addSystemEventTrigger('after', 'shutdown',
-                                  super(RealityAuditor, self).restart)
-    reactor.callFromThread(reactor.stop)
+    self.logger.warn('The agent is restarting...')
 
-  def auto_agent_update(self, update_path):
+    reactor.addSystemEventTrigger('after', 'shutdown', self.delpid)
+    reactor.addSystemEventTrigger('after', 'shutdown', self.fork,
+                                  detached=False, exit=False)
+
+    self.network_controller.stop_amqp()
+    reactor.stop()
+
+  def auto_agent_update(self):
     """Checks for a new version of the running application from the remote server.
     If a new version is found, it will be downloaded and extracted, and the agent
-    restarted. This only applies if the application is frozen.
+    restarted. This only applies if the application is frozen."""
 
-    Args:
-      update_path: The absolute URI of a listing of frozen versioned agent downloads.
-    """
-
-    updater = esky.Esky(sys.executable, update_path)
     self.logger.info('Checking for updates, currently running %s',
-                     updater.active_version)
+                     self.app.active_version)
 
-    new_version = updater.find_update()
+    new_version = self.app.find_update()
     if new_version:
       self.logger.info('Version %s found', new_version)
 
-      updater.auto_update(callback=self.logger.debug)
+      self.app.auto_update(callback=self.logger.debug)
       self.logger.info('New version installed')
 
       self.restart()

@@ -28,14 +28,13 @@ URL = "http://hiveary.com"
 if 'bdist_esky' in sys.argv and current_platform == 'Windows':
   # Use esky/cxfreeze to build the agent and py2exe to build the service
   from esky.bdist_esky import Executable
-  import distutils.core
   from glob import glob
   import os
   import py2exe  # noqa
   import setuptools
   import shutil
 
-  packages = [
+  modules = [
       'kombu.transport.pyamqp',
       'kombu.transport.base',
       'kombu.transport.amqplib',
@@ -47,6 +46,7 @@ if 'bdist_esky' in sys.argv and current_platform == 'Windows':
   data_files = [
       ('Microsoft.VC90.CRT', glob(r'C:\Program Files (x86)\Microsoft Visual Studio 9.0\VC\redist\x86\Microsoft.VC90.CRT\*.*')),
       r'hiveary\ca-bundle.pem',
+      ('monitors', glob(r'monitors\*.py'))
   ]
 
   script = Executable('hiveary-agent', gui_only=False)
@@ -54,17 +54,17 @@ if 'bdist_esky' in sys.argv and current_platform == 'Windows':
   options = {
       'bdist_esky': {
           'freezer_module': 'cxfreeze',
-          'includes': packages,
+          'includes': modules,
       }
   }
 
   # Build the agent
-  distutils.core.setup(name=FROZEN_NAME,
-                       version=version,
-                       scripts=[script],
-                       options=options,
-                       data_files=data_files,
-                       )
+  setuptools.setup(name=FROZEN_NAME,
+                   version=version,
+                   scripts=[script],
+                   options=options,
+                   data_files=data_files,
+                   )
 
   sys.argv.remove('bdist_esky')
   sys.argv.append('py2exe')
@@ -115,9 +115,10 @@ else:
   ]
 
   data_files = [
-      ('/etc/hiveary', ['hiveary.conf', 'README.md']),
+      ('/etc/hiveary', ['hiveary.conf.example', 'README.md']),
       ('/etc/hiveary/init', ['initd/hiveary-agent']),
       ('/etc/hiveary/systemd', ['arch/hiveary-agent.service']),
+      ('/usr/lib/hiveary', ['monitors/resources.py']),
   ]
 
   setup(name=FROZEN_NAME,

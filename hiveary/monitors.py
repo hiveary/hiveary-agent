@@ -6,7 +6,7 @@ https://hiveary.com
 Licensed under Simplified BSD License (see LICENSE)
 (C) Hiveary, LLC 2013 all rights reserved
 
-Classes for collecting data.
+Base classes for collecting data.
 """
 
 from collections import defaultdict
@@ -14,22 +14,21 @@ import copy
 import datetime
 import json
 import logging
-import psutil
 import time
-
-# Local imports
-from . import sysinfo
 
 
 class BaseMonitor(object):
   """Default class for defining a monitor. This does nothing on its own, it should
-  be subclassed with at least check_data defined."""
+  be subclassed with at least get_data defined."""
 
   AGGREGATION_TIMER = 1800  # 30 minutes
   FLOP_PROTECTION_COUNTER = 6
   MONITOR_TIMER = 1
   DEFAULT_ALERT_BACKOFF = 3600  # Delay between similar alerts, in seconds
   NAME = 'base'
+  TYPE = None
+  UID = None  # Can be set to any value guaranteed to be unique, a uuid.uuid4() is recommended
+  SOURCES = []
 
   def __init__(self, backoff=None, logger=None):
     """Initialize the monitor.
@@ -37,9 +36,16 @@ class BaseMonitor(object):
     Args:
       backoff: The amount of time to delay between repeated alerts, in seconds.
       logger: A logging object to use.
+    Raise:
+      AttributeError: The monitor subclass did not set a unique ID.
     """
 
     self.logger = logger or logging.getLogger('hiveary_agent.%s' % self.NAME)
+
+    if self.UID is None:
+      raise AttributeError('UID is not set for monitor %s!' % self.NAME)
+
+    self.logger.info('Monitoring the following sources: %s', self.SOURCES)
 
     self.backoff = backoff or self.DEFAULT_ALERT_BACKOFF
     self.logger.info('Using an alert backoff of %d seconds', self.backoff)
@@ -47,19 +53,36 @@ class BaseMonitor(object):
     self.expected_values = {}
     self.data_points = []
 
+    self.send_alert = None
+    self.alert_counters = defaultdict(lambda: 0)
+    self.alert_delays = {}
+
+    # Store just the source names separately to prevent having to repeatedly
+    # look them up
+    self.monitored_source_names = set(self.SOURCES.keys())
+
   def store_data_point(self, data):
     """Puts a single data point into the database.
 
     Args:
       data: A dictionary of any data to be stored.
+    Raises:
+      AttributeError: The data reported by the monitor does not match what it
+          declared it would be monitoring.
     """
 
-    usage = copy.copy(data)
-    usage['timestamp'] = time.time()
-    self.data_points.append(usage)
+    monitor_data = copy.copy(data)
+    monitor_data.pop('extra', None)
+
+    if set(monitor_data.keys()) != self.monitored_source_names:
+      raise AttributeError('The returned data does not match the '
+                           'source list for monitor %s' % self.NAME)
+
+    monitor_data['timestamp'] = time.time()
+    self.data_points.append(monitor_data)
 
   def send_data(self, net_controller):
-    """Sends the resource usage data points for the past time period.
+    """Sends the usage data points for the past time period.
 
     Args:
       net_controller: A NetworkController object with an active AMQP connection.
@@ -78,22 +101,40 @@ class BaseMonitor(object):
     data['period'] = time_period.strftime('%H%M')
     data['day'] = time_period.weekday()
     data['host_id'] = net_controller.obj_id
+    data['id'] = self.UID
 
     for point in self.data_points:
       # Throw out any data points that are too old
       timestamp = point.pop('timestamp')
       if timestamp >= earliest:
-        for resource, value in point.iteritems():
-          data[resource].append(value)
+        for source, value in point.iteritems():
+          data[source].append(value)
 
     self.logger.debug('Full data since %s: %s', earliest, data)
 
     # Send the full data up to the server.
-    net_controller.publish_info_message('resource_usage', json.dumps(data))
+    net_controller.publish_info_message(self.TYPE, json.dumps(data))
     self.data_points = []
 
-  def check_data(self):
-    """Method for checking the monitored data. This must be defined by a child class.
+  def run(self):
+    """Wrapper call to get the data for monitored sources and check it against
+    any set alert values."""
+
+    pass
+
+  def alert_check(self, data):
+    """Checks the monitored data to determine if an alert should be created.
+    This should be defined by a child class for alerting.
+
+    Args:
+      data: A dictionary of the data to check. The keys must match the list of
+          monitored sources for the class.
+    """
+
+    pass
+
+  def get_data(self):
+    """Retrieves the monitored data. This must be defined by a child class.
 
     Raises:
       NotImplementedError: The method hasn't been overridden in the subclass
@@ -101,6 +142,31 @@ class BaseMonitor(object):
     """
 
     raise NotImplementedError
+
+  def extra_alert_data(self, source, data):
+    """Finds additional information that should be sent when an alert is fired
+    for this monitor. This should be defined by a child class.
+
+    Args:
+      source: The source of the fired alert.
+      data: A dictionary of any additional information generated from the monitor
+          while checking its sources.
+    """
+
+    pass
+
+
+class PollingMixin(object):
+  """Mixin class for monitors that expect to regularly poll their data sources
+  for new data."""
+
+  def run(self):
+    """Wrapper call to get the data for monitored sources and check it against
+    any set alert values."""
+
+    data = self.get_data()
+    self.store_data_point(data)
+    self.alert_check(data)
 
 
 class IntervalMixin(object):
@@ -128,108 +194,67 @@ class IntervalMixin(object):
     return delta
 
 
-class ResourceMonitor(IntervalMixin, BaseMonitor):
-  """Monitors system resource data."""
+class UsageMonitor(IntervalMixin, BaseMonitor):
+  """Base class for all "usage" type monitors."""
 
-  MONITOR_TIMER = 10
-  NAME = 'resources'
+  TYPE = 'usage'
 
-  def __init__(self, *args, **kwargs):
-    super(ResourceMonitor, self).__init__(*args, **kwargs)
+  def alert_check(self, data):
+    """Checks the monitored data to determine if an alert should be created.
 
-    # Expected resource usage parameters for the current time frame, stored as percentages
-    self.alert_counters = defaultdict(lambda: 0)
-    self.alert_delays = {}
-    self.resource_list = ['ram', 'cpu', 'bytes_sent', 'bytes_recv']
-    self.disks = sysinfo.find_valid_disks()
-    self.resource_list.extend(self.disks)
-
-    self.logger.info('Monitoring the following resources: %s', self.resource_list)
-
-    # Initialize the network information
-    self.total_net_io = psutil.network_io_counters()
-    self.last_check = time.time()
-
-  def check_data(self):
-    """Gets the system's resource usage and sends an alert when it becomes too high."""
+    Args:
+      data: A dictionary of the data to check. The keys must match the list of
+          monitored sources for the class.
+    """
 
     now = time.time()
 
-    # We have to aggregate usage so we'll pull everything regardless of the params
-    network_io = psutil.network_io_counters()
-    time_diff = now - self.last_check
-    ram_usage = psutil.phymem_usage()
-    disk_usage = {}
-    for disk in self.disks:
-      disk_usage[disk] = psutil.disk_usage(disk)
-
-    current_usage = {
-        'bytes_sent': (network_io.bytes_sent - self.total_net_io.bytes_sent) / time_diff,
-        'bytes_recv': (network_io.bytes_recv - self.total_net_io.bytes_recv) / time_diff,
-        'ram': ram_usage.percent,
-        'cpu': psutil.cpu_percent(),
-    }
-
-    extra_data = {
-        'ram': {
-            'total_memory': ram_usage.total,
-            'used_memory': ram_usage.used,
-            'free_memory': ram_usage.free,
-            'resource': 'RAM',
-        },
-        'cpu': {
-            'resource': 'CPU',
-        }
-    }
-
-    # Add in disk usage data
-    for device, usage in disk_usage.iteritems():
-      disk_name = 'disk_%s' % device
-      current_usage[disk_name] = usage.percent
-      extra_data[disk_name] = {
-          'disk': device,
-          'total_space': usage.total,
-          'used_space': usage.used,
-          'free_space': usage.free,
-      }
-
-    self.last_check = now
-    self.total_net_io = network_io
-
-    # Store the values in our sqllite DB
-    self.store_data_point(current_usage)
-
-    for resource in self.resource_list:
-      delay = self.alert_delays.get(resource)
-      threshold = self.expected_values.get(resource)
-      usage = current_usage.get(resource)
+    for source in self.monitored_source_names:
+      delay = self.alert_delays.get(source)
+      threshold = self.expected_values.get(source)
+      usage = data.get(source)
 
       if delay and delay <= now:
         self.alert_delays.pop(delay)
         delay = None
 
       if threshold and not delay and usage >= threshold:
-        self.logger.debug('Current %s usage at %s, threshold is %s', resource,
+        self.logger.debug('Current %s usage at %s, threshold is %s', source,
                           usage, threshold)
 
-        self.alert_counters[resource] += 1
-        if self.alert_counters[resource] >= self.FLOP_PROTECTION_COUNTER:
-          # Send an alert to the server
-          data = {
+        self.alert_counters[source] += 1
+        if self.alert_counters[source] >= self.FLOP_PROTECTION_COUNTER:
+          # Send an alert to the server with any extra information for this source
+          extra = data.pop('extra', {})
+          alert = {
               'threshold': threshold,
               'current_usage': usage,
-              'host_id': self.obj_id,
-              'current_procesess': sysinfo.pull_processes(),
-              'resource': resource,
               'timestamp': now,
+              'monitor': {
+                  'id': self.UID,
+                  'name': self.NAME,
+                  'type': self.TYPE,
+                  'source': source,
+                  'source_type': self.SOURCES[source],
+              },
+              'event_data': self.extra_alert_data(source, extra) or {},
           }
-
-          # Add in any extra information for this resource and send it off
-          data.update(extra_data.get(resource, {}))
-          self.network_controller.publish_info_message('alert', json.dumps(data))
+          self.send_alert(alert)
 
           # Put a delay on the next alert to prevent a flood of alert messages
-          self.alert_delays[resource] = now + self.backoff
-          self.alert_counters[resource]
+          self.alert_delays[source] = now + self.backoff
+          self.alert_counters[source]
       else:
-        self.alert_counters[resource]
+        self.alert_counters[source]
+
+
+class LogMonitor(BaseMonitor):
+  """Base class for all "log" type monitors."""
+
+  TYPE = 'log'
+
+
+class StatusMonitor(BaseMonitor):
+  """Base class for all "status" type monitors."""
+
+  TYPE = 'status'

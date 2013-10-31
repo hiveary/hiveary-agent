@@ -7,7 +7,6 @@ Licensed under Simplified BSD License (see LICENSE)
 (C) Hiveary, LLC 2013 all rights reserved
 """
 
-import copy
 import datetime
 import json
 import kombu
@@ -115,7 +114,7 @@ class NetworkController(object):
       sys.exit(409)
     else:
       self.logger.error('Failed to retrieve AMQP credentials. Status: %s',
-                   resp.status)
+                        resp.status)
       sys.exit(resp.status)
 
     if self.obj_id is None or self.amqp_password is None or self.user_id is None:
@@ -137,30 +136,67 @@ class NetworkController(object):
 
     self.logger.debug('Connecting to %s as user %s', self.amqp_server, self.user_id)
     self.amqp = kombu.Connection(self.amqp_server, self.user_id, self.amqp_password,
-                                 port=5671, ssl=ssl_options)
-    self.logger.info('SSL-AMQP connection established')
+                                 port=5671, ssl=ssl_options, insist=True)
 
-    # Setup the consumers
-    task_queue = kombu.Queue('agent.{user}.tasks.{host}'.format(
-                             user=self.user_id, host=self.obj_id))
-    task_consumer = self.amqp.Consumer(task_queue, auto_declare=False,
-                                       callbacks=[self.task_callback])
-    task_consumer.consume()
+    self.amqp.ensure_connection(errback=self.amqp_errback, interval_max=60)
+    self.logger.info('SSL-AMQP connection established')
     self.reactor.callInThread(self.drain_events)
+
+  def stop_amqp(self):
+    """Stops listening for AMQP messages and releases the connection."""
+
+    self.running = False
+    if self.amqp:
+      try:
+        self.amqp.release()
+      except:
+        pass
+
+  def amqp_reconnect(self):
+    """Handles re-establishing an AMQP connection after an error occurred.
+    In some error cases, the connection will be marked as connected despite
+    the error, so ensure_connection will not be enoguh to reconnnect.
+    Forcing a release first resolves this."""
+
+    self.amqp.release()
+    self.amqp.ensure_connection(errback=self.amqp_errback,
+                                interval_start=5,
+                                interval_step=5,
+                                interval_max=60)
 
   def drain_events(self):
     """Attempts to receive a message from the AMQP server and times out after
     a short wait. Loops until the agent is marked as stopping. This allows us
     to gracefully close the connection when waiting for messages."""
 
+    # Setup the consumers
+    task_queue = kombu.Queue('agent.{user}.tasks.{host}'.format(
+                             user=self.user_id, host=self.obj_id))
+    try:
+      task_consumer = self.amqp.Consumer(task_queue, auto_declare=False,
+                                         callbacks=[self.task_callback])
+      task_consumer.consume()
+    except:
+      if self.running:
+        raise
+
     loop = kombu.common.eventloop(self.amqp, timeout=1, ignore_timeouts=True)
+    self.logger.info('Draining events from the server')
+
     while self.running:
       try:
         next(loop)
-      except:
+      except Exception, err:
         # Errors generated while the agent is stopping can be ignored
         if self.running:
-          raise
+          self.logger.error('AMQP error while draining events: %s', err)
+          self.amqp_reconnect()
+          break
+    else:
+      return
+
+    # If the loop broke while the agent is still running, try starting over
+    self.drain_events()
 
   def create_oauth_client(self):
     """Generates an OAuth client that handles the OAuth signature and header.
@@ -229,7 +265,18 @@ class NetworkController(object):
 
       return self.request_with_backoff(url, attempt, **kwargs)
 
-  def publish_info_message(self, destination, message=''):
+  def publish_alert_message(self, alert=None):
+    """Publishes an AMQP message to the alert queue, with some extra data.
+
+    Args:
+      alert: The alert to publish. This should be an instance of alerts.BaseAlert
+          and will be JSONified before being sent.
+    """
+
+    alert['host_id'] = self.obj_id
+    self.publish_info_message('alert', json.dumps(alert))
+
+  def publish_info_message(self, destination, message='', retry=True):
     """Method to publish an AMQP message.
 
     Args:
@@ -242,9 +289,16 @@ class NetworkController(object):
     exchange = kombu.Exchange('agent.{user}'.format(user=self.user_id))
     with self.amqp.Producer(exchange=exchange, routing_key=destination,
                             auto_declare=False) as producer:
-      publish = self.amqp.ensure(producer, producer.publish, errback=self.amqp_errback,
-                                 interval_start=5, interval_step=10, max_retries=5)
-      publish(message, user_id=self.user_id, timestamp=datetime.datetime.utcnow())
+      try:
+        producer.publish(message, user_id=self.user_id,
+                         timestamp=datetime.datetime.utcnow())
+      except Exception, err:
+        self.logger.error('Error while publishing to AMQP: %s', err)
+        self.amqp_reconnect()
+
+        # Retry publishing the message if requested
+        if retry:
+          self.publish_info_message(destination, message)
 
   def amqp_errback(self, exc, interval):
     """Error callback fired when there is a problem with the connection or channel.
@@ -254,7 +308,7 @@ class NetworkController(object):
       interval: Amount of time before the message is attempted again.
     """
 
-    self.logger.error("Couldn't publish message: %r. Retry in %ds", exc, interval)
+    self.logger.error('AMQP connection error: %r. Retrying in %ds', exc, interval)
     self.ensure_internet_connection()
 
   def ping_pong(self):
@@ -263,7 +317,7 @@ class NetworkController(object):
     # Send the ping
     data = {'host_id': self.obj_id}
     self.logger.debug('Sending ping to server with a body of: %s', data)
-    self.publish_info_message('ping', json.dumps(data))
+    self.publish_info_message('ping', json.dumps(data), retry=False)
 
   def task_callback(self, body, message):
     """Callback for when a message is received from the tasks queue.
@@ -337,11 +391,14 @@ class NetworkController(object):
         data['status'] = 'FAILURE'
     elif task_name == 'expected_update':
       expected_values = client_task['command']['expected']
-      monitor_name = client_task['command']['monitor']
+      monitor_id = client_task['command']['monitor']
       self.logger.info('Received new %s expected values: %s',
-                       monitor_name, expected_values)
+                       monitor_id, expected_values)
 
-      self.expected_values[monitor_name] = copy.copy(expected_values)
+      if monitor_id in self.expected_values:
+        self.expected_values[monitor_id].update(expected_values)
+      else:
+        self.logger.warn('Monitor "%s" is not enabled!', monitor_id)
     else:
       self.logger.error('Unable to perform requested task')
       data['status'] = 'NOT_IMPLEMENTED'
