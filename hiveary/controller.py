@@ -67,12 +67,12 @@ class RealityAuditor(daemon.Daemon):
       if not os.path.isdir(self.monitors_dir):
         os.makedirs(self.monitors_dir)
 
-    self.monitor_config = stored_config.get('monitors',
-                                            {'resources': ['ResourceMonitor']})
+    self.monitor_config = stored_config.get('monitors')
+    if self.monitor_config is None:
+      self.monitor_config = {'resources': ['ResourceMonitor']}
+      parsed_args['update'] = True
 
-    # Load all configured modules
     self.monitors = []
-    self.load_monitors()
 
     # Get and possibly save optional configuration parameters. If the defaults
     # are used, they won't be saved.
@@ -102,9 +102,13 @@ class RealityAuditor(daemon.Daemon):
 
     if hasattr(sys, 'frozen'):
       # Setup the auto-updater
-      update_path = 'https://{host}/versions'.format(host=self.REMOTE_HOST)
+      update_path = 'https://{host}/versions'.format(host=self.network_controller.remote_host)
+      self.app = esky.Esky(sys.executable, update_path)
       reactor.callLater(0, self.start_loop, self.UPDATE_TIMER, True,
-                        self.auto_agent_update, update_path)
+                        self.auto_agent_update)
+
+    # Load all monitors
+    self.load_monitors()
 
     # Connect to the server
     self.network_controller.initialize_amqp()
@@ -146,7 +150,17 @@ class RealityAuditor(daemon.Daemon):
     # Check that we have monitors enabled in the config, and know where to find them
     if self.monitor_config and self.monitors_dir:
       # Add the monitors dir to path so we can import monitors
+      self.logger.info('Loading monitors from %s', self.monitors_dir)
       sys.path.insert(0, self.monitors_dir)
+
+      # When frozen, the monitors included with the current version also
+      # need to be loaded
+      if hasattr(sys, 'frozen'):
+        frozen_monitors_dir = os.path.join(os.path.dirname(sys.executable),
+                                           'monitors')
+        sys.path.insert(0, frozen_monitors_dir)
+        self.logger.debug('Also loading frozen monitors from: %s',
+                          frozen_monitors_dir)
 
       # Import all of the monitors and add the instances to our monitor list.
       for module_name, monitor_classes in self.monitor_config.iteritems():
@@ -195,14 +209,8 @@ class RealityAuditor(daemon.Daemon):
 
     self.logger.info("Received signal: %s", signum)
 
-    # Mark the code as stopping and give timed loops a chance to gracefully close
-    self.network_controller.running = False
-    if self.network_controller.amqp:
-      try:
-        self.network_controller.amqp.release()
-      except:
-        pass
-    reactor.callFromThread(reactor.stop)  # Stop twisted code when in the reactor loop
+    self.network_controller.stop_amqp()
+    reactor.callFromThread(reactor.stop)
 
     # Clean up the daemon after the reactor is done
     reactor.addSystemEventTrigger('after', 'shutdown', self.delpid)
@@ -296,28 +304,28 @@ class RealityAuditor(daemon.Daemon):
   def restart(self):
     """Setup an event to restart the agent after the reactor stops."""
 
-    reactor.addSystemEventTrigger('after', 'shutdown',
-                                  super(RealityAuditor, self).restart)
-    reactor.callFromThread(reactor.stop)
+    self.logger.warn('The agent is restarting...')
 
-  def auto_agent_update(self, update_path):
+    reactor.addSystemEventTrigger('after', 'shutdown', self.delpid)
+    reactor.addSystemEventTrigger('after', 'shutdown', self.fork,
+                                  detached=False, exit=False)
+
+    self.network_controller.stop_amqp()
+    reactor.stop()
+
+  def auto_agent_update(self):
     """Checks for a new version of the running application from the remote server.
     If a new version is found, it will be downloaded and extracted, and the agent
-    restarted. This only applies if the application is frozen.
+    restarted. This only applies if the application is frozen."""
 
-    Args:
-      update_path: The absolute URI of a listing of frozen versioned agent downloads.
-    """
-
-    updater = esky.Esky(sys.executable, update_path)
     self.logger.info('Checking for updates, currently running %s',
-                     updater.active_version)
+                     self.app.active_version)
 
-    new_version = updater.find_update()
+    new_version = self.app.find_update()
     if new_version:
       self.logger.info('Version %s found', new_version)
 
-      updater.auto_update(callback=self.logger.debug)
+      self.app.auto_update(callback=self.logger.debug)
       self.logger.info('New version installed')
 
       self.restart()
