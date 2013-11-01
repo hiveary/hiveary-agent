@@ -28,7 +28,7 @@ class BaseMonitor(object):
   NAME = 'base'
   TYPE = None
   UID = None  # Can be set to any value guaranteed to be unique, a uuid.uuid4() is recommended
-  SOURCES = []
+  SOURCES = {}
 
   def __init__(self, backoff=None, logger=None):
     """Initialize the monitor.
