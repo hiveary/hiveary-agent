@@ -7,7 +7,7 @@ About
 
 Hiveary Agent by Hiveary, LLC <info@hiveary.com>
 <https://github.com/hiveary/hiveary-agent>
-Version 1.0.1
+Version 1.1.0
 
 Hiveary is an intelligent server monitoring solution that automatically finds anomalies.
 

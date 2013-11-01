@@ -1,3 +1,14 @@
+hiveary-agent (1.1.0-1) unstable; urgency=low
+
+  * Complete rewrite of monitor loading, allowing arbitary monitors to be added.
+  * Fixed several bugs related to automatic restarting.
+  * Changed the format of alerts and how monitors are reported.
+  * Improved the accuracy of the CPU resource monitor.
+  * Send top processes by RAM or CPU with alerts for those resources.
+
+ -- Hiveary <info@hiveary.com>  Thu, 31 Oct 2013 20:40:43 -0800
+
+
 hiveary-agent (1.0.1-1) unstable; urgency=low
 
   * Modified SSL certificates used.
