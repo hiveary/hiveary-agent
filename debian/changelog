@@ -1,3 +1,9 @@
+hiveary-agent (1.1.1-1) unstable; urgency=low
+
+  * Fixed a missing dependency in the setup.py file.
+
+ -- Hiveary <info@hiveary.com>  Sat, 2 Nov 2013 11:42:03 -0800
+
 hiveary-agent (1.1.0-1) unstable; urgency=low
 
   * Complete rewrite of monitor loading, allowing arbitary monitors to be added.
@@ -7,7 +13,6 @@ hiveary-agent (1.1.0-1) unstable; urgency=low
   * Send top processes by RAM or CPU with alerts for those resources.
 
  -- Hiveary <info@hiveary.com>  Thu, 31 Oct 2013 20:40:43 -0800
-
 
 hiveary-agent (1.0.1-1) unstable; urgency=low
 

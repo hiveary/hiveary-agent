@@ -2,7 +2,7 @@ PYTHON=`which python`
 DESTDIR=/
 BUILDIR=$(CURDIR)/debian/hiveary-agent
 PROJECT=hiveary-agent
-VERSION=1.0.1
+VERSION=1.1.1
 
 builddeb:
 	$(PYTHON) setup.py sdist $(COMPILE) --dist-dir=../
