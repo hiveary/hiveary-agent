@@ -73,7 +73,7 @@ class NetworkController(object):
     # Thread and deferred management
     self.reactor = reactor
 
-    self.expected_values = {}
+    self.monitors = {}
 
   def ensure_internet_connection(self, test_url='http://198.41.189.27'):
     """Blocks until there is an active connection to the public internet.
@@ -273,21 +273,31 @@ class NetworkController(object):
           and will be JSONified before being sent.
     """
 
-    alert['host_id'] = self.obj_id
-    self.publish_info_message('alert', json.dumps(alert))
+    self.publish_info_message('alert', alert)
 
-  def publish_info_message(self, destination, message='', retry=True):
+  def publish_info_message(self, routing_key, message='', retry=True,
+                           exchange_name=None):
     """Method to publish an AMQP message.
 
     Args:
-      destination: The AMQP routing key.
-      message: The message to publish, as a string (usually a JSONified object).
+      routing_key: The AMQP routing key.
+      message: The message to publish, as a string or dict.
+      retry: A boolean of whether a failed publish should be re-attempted.
+      exchange_name: An optional AMQP exchange name to use.
     """
 
-    self.logger.debug('Sending "%s" AMQP message', destination)
+    self.logger.debug('Sending "%s" AMQP message', routing_key)
 
-    exchange = kombu.Exchange('agent.{user}'.format(user=self.user_id))
-    with self.amqp.Producer(exchange=exchange, routing_key=destination,
+    if not exchange_name:
+      exchange_name = 'agent.{user}'.format(user=self.user_id)
+
+    # Check the message format and add the host ID
+    if type(message) == dict:
+      message['host_id'] = self.obj_id
+      message = json.dumps(message)
+
+    exchange = kombu.Exchange(exchange_name)
+    with self.amqp.Producer(exchange=exchange, routing_key=routing_key,
                             auto_declare=False) as producer:
       try:
         producer.publish(message, user_id=self.user_id,
@@ -298,7 +308,7 @@ class NetworkController(object):
 
         # Retry publishing the message if requested
         if retry:
-          self.publish_info_message(destination, message)
+          self.publish_info_message(routing_key, message, retry, exchange_name)
 
   def amqp_errback(self, exc, interval):
     """Error callback fired when there is a problem with the connection or channel.
@@ -315,9 +325,8 @@ class NetworkController(object):
     """Function to alert the server that we're still alive and doing science."""
 
     # Send the ping
-    data = {'host_id': self.obj_id}
-    self.logger.debug('Sending ping to server with a body of: %s', data)
-    self.publish_info_message('ping', json.dumps(data), retry=False)
+    self.logger.debug('Sending ping to server')
+    self.publish_info_message('ping', {}, retry=False)
 
   def task_callback(self, body, message):
     """Callback for when a message is received from the tasks queue.
@@ -328,6 +337,7 @@ class NetworkController(object):
     """
 
     self.logger.debug('Received the following task message: %s', body)
+    message.ack()
 
     try:
       data = json.loads(body)
@@ -335,9 +345,6 @@ class NetworkController(object):
       self.logger.error('Unable to process task:', exc_info=True)
     else:
       self.run_task(data)
-
-    # Let the broker know that we're done processing this message
-    message.ack()
 
   def run_task(self, client_task):
     """Run a task as commanded by the control server.
@@ -395,8 +402,30 @@ class NetworkController(object):
       self.logger.info('Received new %s expected values: %s',
                        monitor_id, expected_values)
 
-      if monitor_id in self.expected_values:
-        self.expected_values[monitor_id].update(expected_values)
+      if monitor_id in self.monitors:
+        self.monitors[monitor_id].expected_values.update(expected_values)
+      else:
+        self.logger.warn('Monitor "%s" is not enabled!', monitor_id)
+    elif task_name == 'live_data':
+      # Tell the relevant monitor to start sending a copy of all data to a special
+      # real-time AMQP queue
+      monitor_id = client_task['command']['monitor']
+      action = client_task['command']['action']
+      stream_routing_key = client_task['command']['routing_key']
+      self.logger.info('Received request to %s sending real-time data for %s',
+                       action, monitor_id)
+
+      if monitor_id in self.monitors:
+        if action == 'start':
+          # Add a new livestream callback
+          exchange_name = 'agent.{user}.reports'.format(user=self.user_id)
+          live_publish = lambda data: self.publish_info_message(stream_routing_key,
+                                                                data,
+                                                                exchange_name=exchange_name)
+          self.monitors[monitor_id].livestreams[stream_routing_key] = live_publish
+        elif 'action' == 'stop' and stream_routing_key in self.monitors[monitor_id]:
+          # Delete the previously setup stream
+          del(self.monitors[monitor_id].livestreams[stream_routing_key])
       else:
         self.logger.warn('Monitor "%s" is not enabled!', monitor_id)
     else:
