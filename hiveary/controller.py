@@ -190,7 +190,7 @@ class RealityAuditor(daemon.Daemon):
 
     self.logger.debug('Starting %s (%s) monitor data checks', monitor.NAME,
                       monitor.UID)
-    self.network_controller.expected_values[monitor.UID] = monitor.expected_values
+    self.network_controller.monitors[monitor.UID] = monitor
     monitor.send_alert = self.network_controller.publish_alert_message
 
     # Check if the monitor should run in a loop

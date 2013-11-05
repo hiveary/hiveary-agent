@@ -56,6 +56,7 @@ class BaseMonitor(object):
     self.send_alert = None
     self.alert_counters = defaultdict(lambda: 0)
     self.alert_delays = {}
+    self.livestreams = {}
 
     # Store just the source names separately to prevent having to repeatedly
     # look them up
@@ -167,6 +168,13 @@ class PollingMixin(object):
     data = self.get_data()
     self.store_data_point(data)
     self.alert_check(data)
+
+    # Send a copy of the data to any waiting real-time data streams
+    if self.livestreams:
+      data['monitor_id'] = self.UID
+      data.pop('extra', None)
+      for publish in self.livestreams.itervalues():
+        publish(data)
 
 
 class IntervalMixin(object):
