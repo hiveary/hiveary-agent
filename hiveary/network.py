@@ -231,6 +231,10 @@ class NetworkController(object):
       contains the response entity body.
     """
 
+    # Check to see if we tried to kill the process, if so, bail.
+    if not self.running:
+      sys.exit(1)
+
     client = self.create_oauth_client()
 
     try:
