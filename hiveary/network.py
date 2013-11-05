@@ -233,7 +233,7 @@ class NetworkController(object):
 
     # Check to see if we tried to kill the process, if so, bail.
     if not self.running:
-      sys.exit(1)
+      raise
 
     client = self.create_oauth_client()
 
