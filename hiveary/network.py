@@ -229,7 +229,14 @@ class NetworkController(object):
       A tuple of (response, content), the first being an instance of the
       'httplib2.Http.Response' class, the second being a string that
       contains the response entity body.
+
+    Raises:
+      RuntimeError: Occurs when the program is exiting but we are stuck in this loop.
     """
+
+    # Check to see if we tried to kill the process, if so, bail.
+    if not self.running:
+      raise RuntimeError
 
     client = self.create_oauth_client()
 
