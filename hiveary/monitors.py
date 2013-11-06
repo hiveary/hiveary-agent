@@ -172,6 +172,7 @@ class PollingMixin(object):
     # Send a copy of the data to any waiting real-time data streams
     if self.livestreams:
       data['monitor_id'] = self.UID
+      data['timestamp'] = time.time()
       data.pop('extra', None)
       for publish in self.livestreams.itervalues():
         publish(data)
