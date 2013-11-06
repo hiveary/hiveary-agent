@@ -301,6 +301,7 @@ class NetworkController(object):
     # Check the message format and add the host ID
     if type(message) == dict:
       message['host_id'] = self.obj_id
+      message['timestamp'] = time.time()
       message = json.dumps(message)
 
     exchange = kombu.Exchange(exchange_name)
