@@ -103,6 +103,7 @@ class BaseMonitor(object):
     data['day'] = time_period.weekday()
     data['host_id'] = net_controller.obj_id
     data['id'] = self.UID
+    data['interval'] = self.MONITOR_TIMER
 
     for point in self.data_points:
       # Throw out any data points that are too old
