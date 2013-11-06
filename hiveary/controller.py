@@ -106,7 +106,7 @@ class RealityAuditor(daemon.Daemon):
       # Setup the auto-updater
       update_path = 'https://{host}/versions'.format(host=self.network_controller.remote_host)
       self.app = esky.Esky(sys.executable, update_path)
-      reactor.callLater(0, self.start_loop, self.UPDATE_TIMER, True,
+      reactor.callLater(0, self.start_loop, self.UPDATE_TIMER,
                         self.auto_agent_update)
 
     # Load all monitors
@@ -139,7 +139,7 @@ class RealityAuditor(daemon.Daemon):
 
     # Send a ping to the server to act as a keep-alive.
     reactor.callLater(self.INITIAL_DELAY, self.start_loop,
-                      self.network_controller.PING_TIMER, True,
+                      self.network_controller.PING_TIMER,
                       self.network_controller.ping_pong)
 
     reactor.run()
@@ -195,7 +195,7 @@ class RealityAuditor(daemon.Daemon):
 
     # Check if the monitor should run in a loop
     if monitor.MONITOR_TIMER is not None:
-      self.start_loop(monitor.MONITOR_TIMER, False, monitor.run)
+      self.start_loop(monitor.MONITOR_TIMER, monitor.run)
     else:
       reactor.callInThread(monitor.run)
 
@@ -279,28 +279,24 @@ class RealityAuditor(daemon.Daemon):
       # period if we have data points from at least half that period.
       delta = monitor.next_interval()
       self.logger.debug('Starting %s aggregation loop in %s seconds', monitor.NAME, delta)
-      start_now = delta > (monitor.AGGREGATION_TIMER / 2)
     else:
       delta = monitor.AGGREGATION_TIMER
-      start_now = True
 
     reactor.callLater(int(delta), self.start_loop,
-                      monitor.AGGREGATION_TIMER, start_now,
+                      monitor.AGGREGATION_TIMER,
                       monitor.send_data, self.network_controller)
 
-  def start_loop(self, timer, start_now, func, *args, **kwargs):
+  def start_loop(self, timer, func, *args, **kwargs):
     """Continuously loop the passed function.
 
     Args:
       timer: How often to loop the call, in seconds.
-      start_now: Boolean indicating whether the first iteration should happen
-                 immediately or wait until after the first timer expires.
       func: The function to run.
       *args, **kwargs: Anything that needs to be passed to the function.
     """
 
     loop = task.LoopingCall(func, *args, **kwargs)
-    deferred_task = loop.start(timer, now=start_now)
+    deferred_task = loop.start(timer, now=True)
     deferred_task.addErrback(self.logger.error)
 
   def restart(self):
