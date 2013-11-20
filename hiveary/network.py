@@ -431,9 +431,17 @@ class NetworkController(object):
                                                                 data,
                                                                 exchange_name=exchange_name)
           self.monitors[monitor_id].livestreams[stream_routing_key] = live_publish
-        elif 'action' == 'stop' and stream_routing_key in self.monitors[monitor_id]:
+        elif action == 'stop':
           # Delete the previously setup stream
-          del(self.monitors[monitor_id].livestreams[stream_routing_key])
+          self.logger.info('Stopping livestream for %s...', monitor_id)
+          if monitor_id not in self.monitors:
+            self.logger.warn('Monitor %s has not been started', monitor_id)
+          elif stream_routing_key not in self.monitors[monitor_id].livestreams:
+            self.logger.info('Livestream for monitor %s was not enabled, skipping',
+                             monitor_id)
+          else:
+            del(self.monitors[monitor_id].livestreams[stream_routing_key])
+            self.logger.info('Livestream stopped')
       else:
         self.logger.warn('Monitor "%s" is not enabled!', monitor_id)
     else:
