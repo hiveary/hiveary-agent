@@ -9,7 +9,7 @@ Licensed under Simplified BSD License (see LICENSE)
 Base classes for collecting data.
 """
 
-from collections import defaultdict
+import collections
 import copy
 import datetime
 import json
@@ -54,7 +54,7 @@ class BaseMonitor(object):
     self.data_points = []
 
     self.send_alert = None
-    self.alert_counters = defaultdict(lambda: 0)
+    self.alert_counters = collections.defaultdict(lambda: 0)
     self.alert_delays = {}
     self.livestreams = {}
 
@@ -82,6 +82,27 @@ class BaseMonitor(object):
     monitor_data['timestamp'] = time.time()
     self.data_points.append(monitor_data)
 
+  def merge_data(self, earliest=0):
+    """Merges all stored datapoints into a single dictionary.
+
+    Args:
+      earliest: Optional, a timestamp (in seconds since the epoch) of the earliest
+          time to return data for. If provided, any datapoints recorded before
+          earliest will be ignored.
+    Returns:
+      A dictionary of source: [datapoints]
+    """
+
+    data = collections.defaultdict(list)
+
+    for point in self.data_points:
+      # Throw out any data points that are too old
+      if point['timestamp'] >= earliest:
+        for source, value in point.iteritems():
+          data[source].append(value)
+
+    return data
+
   def send_data(self, net_controller):
     """Sends the usage data points for the past time period.
 
@@ -95,22 +116,16 @@ class BaseMonitor(object):
                                                 seconds=now_dt.second,
                                                 microseconds=now_dt.microsecond).total_seconds()
     seconds = (now_dt - now_dt.min).seconds
-    rounding = (seconds + self.AGGREGATION_TIMER/2) // self.AGGREGATION_TIMER * self.AGGREGATION_TIMER
-    time_period = now_dt + datetime.timedelta(0, rounding-seconds, -now_dt.microsecond)
+    rounding = (seconds + self.AGGREGATION_TIMER / 2) // self.AGGREGATION_TIMER * self.AGGREGATION_TIMER
+    time_period = now_dt + datetime.timedelta(0, rounding - seconds, -now_dt.microsecond)
 
-    data = defaultdict(list)
+    data = self.merge_data(earliest)
+    data.pop('timestamp')
     data['period'] = time_period.strftime('%H%M')
     data['day'] = time_period.weekday()
     data['host_id'] = net_controller.obj_id
     data['id'] = self.UID
     data['interval'] = self.MONITOR_TIMER
-
-    for point in self.data_points:
-      # Throw out any data points that are too old
-      timestamp = point.pop('timestamp')
-      if timestamp >= earliest:
-        for source, value in point.iteritems():
-          data[source].append(value)
 
     self.logger.debug('Full data since %s: %s', earliest, data)
 
