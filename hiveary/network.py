@@ -430,6 +430,13 @@ class NetworkController(object):
           live_publish = lambda data: self.publish_info_message(stream_routing_key,
                                                                 data,
                                                                 exchange_name=exchange_name)
+
+          # Send a copy of any data that has been aggregated so far
+          data = self.monitors[monitor_id].merge_data()
+          data.pop('timestamp')
+          live_publish(data)
+
+          # Store the lambda on the monitor so all future data will get published
           self.monitors[monitor_id].livestreams[stream_routing_key] = live_publish
         elif action == 'stop':
           # Delete the previously setup stream
