@@ -434,7 +434,14 @@ class NetworkController(object):
           # Send a copy of any data that has been aggregated so far
           data = self.monitors[monitor_id].merge_data()
           data.pop('timestamp')
-          live_publish(json.dumps(data))
+          dataContainer = {
+              'data': data,
+              'monitor_id': monitor_id,
+              'timestamp': time.time(),
+              'interval': self.monitors[monitor_id].MONITOR_TIMER,
+              'host_id': self.obj_id,
+          }
+          live_publish(json.dumps(dataContainer))
 
           # Store the lambda on the monitor so all future data will get published
           self.monitors[monitor_id].livestreams[stream_routing_key] = live_publish

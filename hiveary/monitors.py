@@ -100,7 +100,6 @@ class BaseMonitor(object):
       if point['timestamp'] >= earliest:
         for source, value in point.iteritems():
           data[source].append(value)
-
     return data
 
   def send_data(self, net_controller):
@@ -187,11 +186,14 @@ class PollingMixin(object):
 
     # Send a copy of the data to any waiting real-time data streams
     if self.livestreams:
-      data['monitor_id'] = self.UID
-      data['timestamp'] = time.time()
       data.pop('extra', None)
+      dataContainer = {
+          'monitor_id': self.UID,
+          'timestamp': time.time(),
+          'data': data,
+      }
       for publish in self.livestreams.itervalues():
-        publish(data)
+        publish(dataContainer)
 
 
 class IntervalMixin(object):
