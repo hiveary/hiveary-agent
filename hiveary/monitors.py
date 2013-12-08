@@ -190,7 +190,6 @@ class PollingMixin(object):
       data.pop('extra', None)
       data_container = {
           'monitor_id': self.UID,
-          'timestamp': time.time(),
           'data': data,
       }
       for publish in self.livestreams.itervalues():
