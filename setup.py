@@ -80,8 +80,7 @@ if 'bdist_esky' in sys.argv and current_platform == 'Windows':
   script = Target(
       description='Hiveary Agent Service Launcher',
       modules=["HivearyService"],
-      cmdline_style='pywin32',
-      )
+      cmdline_style='pywin32')
 
   data_files = []
 
@@ -113,6 +112,7 @@ else:
       'psutil>=1.1.0',
       'simplejson>=3.0.5',
       'Twisted>=12.2.0',
+      'impala>=0.1.1',
   ]
 
   data_files = [

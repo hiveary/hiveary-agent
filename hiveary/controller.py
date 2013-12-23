@@ -7,6 +7,9 @@ Licensed under Simplified BSD License (see LICENSE)
 (C) Hiveary, LLC 2013 all rights reserved
 """
 
+import glob
+import impala
+import importlib
 import inspect
 import json
 import logging
@@ -66,11 +69,6 @@ class RealityAuditor(daemon.Daemon):
       self.monitors_dir = os.path.join(directory, 'monitors')
       if not os.path.isdir(self.monitors_dir):
         os.makedirs(self.monitors_dir)
-
-    self.monitor_config = stored_config.get('monitors')
-    if self.monitor_config is None:
-      self.monitor_config = {'resources': ['ResourceMonitor']}
-      parsed_args['update'] = True
 
     self.monitors = []
 
@@ -150,7 +148,7 @@ class RealityAuditor(daemon.Daemon):
     """
 
     # Check that we have monitors enabled in the config, and know where to find them
-    if self.monitor_config and self.monitors_dir:
+    if self.monitors_dir:
       # Add the monitors dir to path so we can import monitors
       self.logger.info('Loading monitors from %s', self.monitors_dir)
       sys.path.insert(0, self.monitors_dir)
@@ -164,22 +162,33 @@ class RealityAuditor(daemon.Daemon):
         self.logger.debug('Also loading frozen monitors from: %s',
                           frozen_monitors_dir)
 
+      # Find all of the monitor modules.
+      monitor_map = {}
+      for filename in glob.glob('%s/*.py' % self.monitors_dir):
+        monitor = os.path.basename(filename).split('.')[0]
+        monitor_map['hiveary.monitors.%s' % monitor] = filename
+
       # Import all of the monitors and add the instances to our monitor list.
-      for module_name, monitor_classes in self.monitor_config.iteritems():
+      impala.register(monitor_map)
+      object_filter = lambda obj: inspect.isclass(obj) and monitors.BaseMonitor in inspect.getmro(obj)
+      for module_name in monitor_map.keys():
         try:
-          self.logger.info('Loading monitor %s from file %s', monitor_classes, module_name)
-          module = __import__(module_name, globals(), locals(),
-                              fromlist=monitor_classes)
-          for class_name in monitor_classes:
-            monitor_class = getattr(module, class_name)
-            # Make sure this class inherits the monitors.BaseMonitor class.
-            if monitors.BaseMonitor in inspect.getmro(monitor_class):
-              monitor = monitor_class()
-              self.monitors.append(monitor)
-            else:
-              self.logger.warn('Tried to load %s, but was not a HivearyMonitor', monitor_class)
-        except:
-          self.logger.error('Failed to load module %s', module_name)
+          module = importlib.import_module(module_name)
+        except ImportError:
+          self.logger.error('Failed to import module %s', module_name)
+          continue
+
+        # Filter down to all classes that inherit the monitors.BaseMonitor class.
+        for class_name, monitor_class in inspect.getmembers(module, object_filter):
+          self.logger.info('Loading %s from %s', class_name, module_name)
+          try:
+            monitor = monitor_class()
+          except Exception:
+            self.logger.error('Failed to load class %s from module %s',
+                              class_name, module_name)
+            self.logger.debug('Full loading error:', exc_info=True)
+          else:
+            self.monitors.append(monitor)
 
   def start_monitor(self, monitor):
     """Starts a given monitor.
