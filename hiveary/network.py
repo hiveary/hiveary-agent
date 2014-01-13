@@ -186,12 +186,13 @@ class NetworkController(object):
       if self.running:
         raise
 
-    loop = kombu.common.eventloop(self.amqp, timeout=1, ignore_timeouts=True)
     self.logger.info('Draining events from the server')
 
     while self.running:
       try:
-        next(loop)
+        self.amqp.drain_events()
+      except (socket.timeout, socket.error):
+        pass
       except Exception, err:
         # Errors generated while the agent is stopping can be ignored
         if self.running:

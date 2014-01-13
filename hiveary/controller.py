@@ -219,12 +219,16 @@ class RealityAuditor(daemon.Daemon):
     """
 
     self.logger.info("Received signal: %s", signum)
+    self.shutdown()
 
-    self.network_controller.stop_amqp()
-    reactor.callFromThread(reactor.stop)
+  def shutdown(self):
+    """Stops the agent and any active network connections."""
 
     # Clean up the daemon after the reactor is done
     reactor.addSystemEventTrigger('after', 'shutdown', self.delpid)
+
+    self.network_controller.stop_amqp()
+    reactor.stop()
 
   def set_config(self, args, stored_config):
     """Update any configuration variables. Use passed command-line values first,
@@ -313,12 +317,9 @@ class RealityAuditor(daemon.Daemon):
 
     self.logger.warn('The agent is restarting...')
 
-    reactor.addSystemEventTrigger('after', 'shutdown', self.delpid)
     reactor.addSystemEventTrigger('after', 'shutdown', self.fork,
                                   detached=False, exit=False)
-
-    self.network_controller.stop_amqp()
-    reactor.stop()
+    self.shutdown()
 
   def auto_agent_update(self):
     """Checks for a new version of the running application from the remote server.
