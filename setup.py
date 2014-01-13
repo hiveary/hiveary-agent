@@ -106,12 +106,13 @@ else:
 
   # Include all files from the package.
   install_requires = [
-      'kombu>=2.5.7',
+      'amqplib>=1.0.2',
+      'kombu>=3.0.8',
       'netifaces>=0.7',
       'oauth2>=1.5.211',
       'psutil>=1.1.0',
       'simplejson>=3.0.5',
-      'Twisted>=12.2.0',
+      'Twisted>=13.2.0',
       'impala>=0.1.1',
   ]
 

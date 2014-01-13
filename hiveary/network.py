@@ -11,6 +11,7 @@ import datetime
 import json
 import kombu
 import kombu.common
+import kombu.utils.debug
 import logging
 import oauth2
 import os
@@ -121,6 +122,9 @@ class NetworkController(object):
       self.logger.error('Missing required parameters to establish an AMQP connection')
       sys.exit(1)
 
+    if self.debug_mode:
+      kombu.utils.debug.setup_logging()
+
     # Create the connection
     ca_certs = os.path.join(paths.get_program_path(), 'ca-bundle.pem')
     self.logger.debug('Using SSL cert bundle at "%s"', ca_certs)
@@ -136,7 +140,8 @@ class NetworkController(object):
 
     self.logger.debug('Connecting to %s as user %s', self.amqp_server, self.user_id)
     self.amqp = kombu.Connection(self.amqp_server, self.user_id, self.amqp_password,
-                                 port=5671, ssl=ssl_options, insist=True)
+                                 port=5671, ssl=ssl_options, insist=True,
+                                 transport='amqplib')
 
     self.amqp.ensure_connection(errback=self.amqp_errback, interval_max=60)
     self.logger.info('SSL-AMQP connection established')
@@ -158,6 +163,7 @@ class NetworkController(object):
     the error, so ensure_connection will not be enoguh to reconnnect.
     Forcing a release first resolves this."""
 
+    self.logger.info('Reconnecting to AMQP...')
     self.amqp.release()
     self.amqp.ensure_connection(errback=self.amqp_errback,
                                 interval_start=5,
@@ -189,10 +195,12 @@ class NetworkController(object):
       except Exception, err:
         # Errors generated while the agent is stopping can be ignored
         if self.running:
-          self.logger.error('AMQP error while draining events: %s', err)
+          self.logger.error('AMQP error while draining events: %s', err,
+                            exc_info=self.debug_mode)
           self.amqp_reconnect()
           break
     else:
+      self.logger.debug('No longer running, stopping the amqp drain')
       return
 
     # If the loop broke while the agent is still running, try starting over
@@ -311,7 +319,8 @@ class NetworkController(object):
         producer.publish(message, user_id=self.user_id,
                          timestamp=datetime.datetime.utcnow())
       except Exception, err:
-        self.logger.error('Error while publishing to AMQP: %s', err)
+        self.logger.error('Error while publishing to AMQP: %s', err,
+                          exc_info=self.debug_mode)
         self.amqp_reconnect()
 
         # Retry publishing the message if requested
@@ -433,12 +442,13 @@ class NetworkController(object):
 
           # Send a copy of any data that has been aggregated so far
           data = self.monitors[monitor_id].merge_data()
-          data.pop('timestamp')
+          data.pop('timestamp', None)
           data_container = {
               'data': data,
               'monitor_id': monitor_id,
               'interval': self.monitors[monitor_id].MONITOR_TIMER,
           }
+          self.logger.debug('Sending inititial data: %s', data_container)
           live_publish(data_container)
 
           # Store the lambda on the monitor so all future data will get published
