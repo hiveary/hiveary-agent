@@ -1,3 +1,11 @@
+hiveary-agent (1.2.0-1) unstable; urgency=low
+
+  * Added the ability to have live data streams of data without aggregation.
+  * Changed the transport library used for AMQP.
+  * Removed the whitelisting of loaded monitors.
+
+ -- Hiveary <info@hiveary.com>  Fri, 17 Jan 2014 13:59:58 -0500
+
 hiveary-agent (1.1.1-1) unstable; urgency=low
 
   * Fixed a missing dependency in the setup.py file.
