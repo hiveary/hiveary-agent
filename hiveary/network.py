@@ -4,7 +4,7 @@ Hiveary
 https://hiveary.com
 
 Licensed under Simplified BSD License (see LICENSE)
-(C) Hiveary, LLC 2013 all rights reserved
+(C) Hiveary, Inc. 2013-2014 all rights reserved
 """
 
 import datetime
@@ -33,7 +33,7 @@ if subprocess.mswindows:
 # Local imports
 from . import oauth_client
 from . import paths
-from . import sysinfo
+import hiveary.info.system
 
 
 class NetworkController(object):
@@ -380,7 +380,7 @@ class NetworkController(object):
       # Re-poll available system data
       item = client_task['command'].get('item', 'all')
       self.logger.debug('Retrieving %s information', item)
-      info_method = getattr(sysinfo, 'pull_{item}'.format(item=item))
+      info_method = getattr(hiveary.info.system, 'pull_{item}'.format(item=item))
 
       routing_key = '{user}.{host}.{item}'.format(user=self.user_id,
                                                   host=self.obj_id, item=item)

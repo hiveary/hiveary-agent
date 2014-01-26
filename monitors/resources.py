@@ -15,7 +15,9 @@ import copy
 import psutil
 import time
 
-from hiveary import monitors, sysinfo
+from hiveary import monitors
+import hiveary.info.logs
+import hiveary.info.system
 
 
 class ResourceMonitor(monitors.PollingMixin, monitors.UsageMonitor):
@@ -27,7 +29,7 @@ class ResourceMonitor(monitors.PollingMixin, monitors.UsageMonitor):
 
   def __init__(self, *args, **kwargs):
     # Expected resource usage parameters for the current time frame, stored as percentages
-    self.disks = sysinfo.find_valid_disks()
+    self.disks = hiveary.info.system.find_valid_disks()
 
     self.SOURCES = {
         'ram': 'percent',
@@ -112,11 +114,37 @@ class ResourceMonitor(monitors.PollingMixin, monitors.UsageMonitor):
     else:
       top = None
 
-    procs, top_procs = sysinfo.pull_processes(top=top)
+    procs, top_procs = hiveary.info.system.pull_processes(top=top)
     extra_data = copy.copy(data.get(source, {}))
     extra_data['current_procesess'] = procs
 
-    if top_procs:
-      extra_data['top_processes'] = top_procs
+    if top and top_procs:
+      # Find out any more information available about these processes and
+      # provide those details to the user.
+      top_procs_extra = []
+      for process in top_procs:
+        # Pull out just a subset of information
+        proc_subset = {
+            'name': process['name'],
+            'pid': process['pid'],
+            top: process[top],
+            'logs': {},
+        }
+
+        # Read any available log information
+        for log_file in hiveary.info.logs.log_files(process):
+          last_logs = hiveary.info.logs.tail_file(log_file)
+          proc_subset['logs'][log_file] = last_logs
+        top_procs_extra.append(proc_subset)
+
+      extra_data['top_processes'] = top_procs_extra
+      system_logs = hiveary.info.logs.read_system_logs()
+
+      # Only put keys in the dictionary if they actually have values, to
+      # cut down on the noise in the alert message.
+      if system_logs:
+        extra_data['system_logs'] = system_logs
+      if not proc_subset['logs']:
+        del(proc_subset['logs'])
 
     return extra_data

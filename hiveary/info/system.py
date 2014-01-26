@@ -4,7 +4,7 @@ Hiveary
 https://hiveary.com
 
 Licensed under Simplified BSD License (see LICENSE)
-(C) Hiveary, LLC 2013 all rights reserved
+(C) Hiveary, Inc. 2013-2014 all rights reserved
 
 Functions for collecting local system information.
 """
@@ -21,15 +21,15 @@ import subprocess
 if subprocess.mswindows:
   import win32net
   import win32service
-
   import wincom
 else:
   import grp
   import pwd
 
+import hiveary.info
 
-logger = logging.getLogger('hiveary_agent.sysinfo')
-current_system = platform.system()
+
+logger = logging.getLogger('hiveary_agent.info.system')
 
 
 def find_valid_disks():
@@ -95,8 +95,8 @@ def pull_os():
 
   os_info = {}
   os_info['architecture'] = os.name
-  os_info['platform'] = current_system
-  if current_system == 'Windows':
+  os_info['platform'] = hiveary.info.current_system
+  if hiveary.info.current_system == 'Windows':
     os_info['release'] = wincom.get_version_info()
   else:
     os_info['release'] = platform.release()
@@ -126,7 +126,7 @@ def pull_disks():
         'mountpoint': disk.mountpoint,
         'filesystem': disk.fstype,
         'options': disk.opts,
-        }
+    }
   return disks
 
 
@@ -214,7 +214,7 @@ def pull_users():
     ]
   """
 
-  if current_system == 'Windows':
+  if hiveary.info.current_system == 'Windows':
     net_users = win32net.NetUserEnum(None, 3)
     logger.debug('Found %s users', len(net_users[0]))
     resume = net_users[2]
@@ -231,7 +231,7 @@ def pull_users():
       for user in net_users[0]:
         del(user['logon_hours'])  # Hex isn't JSONable
       users.append(net_users[0])
-  elif current_system == 'Linux' or current_system == 'Darwin':
+  elif hiveary.info.current_system == 'Linux' or hiveary.info.current_system == 'Darwin':
     # pwd/grp work on linux and osx
     users = []
     users_pwd = pwd.getpwall()
@@ -246,7 +246,7 @@ def pull_users():
         }
       users.append(user)
   else:
-    logger.error('Unkown platform "%s", cannot pull users', current_system)
+    logger.error('Unkown platform "%s", cannot pull users', hiveary.info.current_system)
     return []
 
   return users
@@ -269,7 +269,7 @@ def pull_groups():
     ]
   """
 
-  if current_system == 'Windows':
+  if hiveary.info.current_system == 'Windows':
     net_local_groups = win32net.NetLocalGroupEnum(None, 1)
     logger.debug('Found %s groups', len(net_local_groups[0]))
     resume = net_local_groups[2]
@@ -291,7 +291,7 @@ def pull_groups():
         net_members = win32net.NetLocalGroupGetMembers(None, group['name'], 1, resumeHandle=resume)
         resume = net_members[2]
         group['members'].extend([x['name'] for x in net_members[0]])
-  elif current_system == 'Linux' or current_system == 'Darwin':
+  elif hiveary.info.current_system == 'Linux' or hiveary.info.current_system == 'Darwin':
     groups = []
     groups_grp = grp.getgrall()
     for group_grp in groups_grp:
@@ -302,7 +302,7 @@ def pull_groups():
         }
       groups.append(group)
   else:
-    logger.error('Unkown platform "%s", cannot pull groups', current_system)
+    logger.error('Unkown platform "%s", cannot pull groups', hiveary.info.current_system)
     return []
 
   return groups
@@ -334,7 +334,7 @@ def pull_services():
     }
   """
 
-  if current_system == 'Windows':
+  if hiveary.info.current_system == 'Windows':
     services = {}
     scm = win32service.OpenSCManager(
         None, None, win32service.SC_MANAGER_ENUMERATE_SERVICE)
@@ -366,7 +366,7 @@ def pull_services():
       services[raw_service[0]] = service
   else:
     # TODO: nix services and osx services
-    logger.warn('Service enumeration not implemented for %s', current_system)
+    logger.warn('Service enumeration not implemented for %s', hiveary.info.current_system)
     return {}
 
   logger.debug('Retrieved the services info')
@@ -464,23 +464,7 @@ def pull_processes(top=None, top_number=5):
   top_procs = []
   if top:
     full_top_procs = sorted(processes, key=lambda p: p[top], reverse=True)
-    top_procs = []
-
-    for i in xrange(0, top_number):
-      try:
-        proc = full_top_procs[i]
-      except IndexError:
-        break
-
-      # Pull out just a subset of information
-      proc_subset = {
-          'name': proc['name'],
-          'pid': proc['pid'],
-          top: proc[top],
-      }
-      top_procs.append(proc_subset)
-
-    logger.debug('Top processes for %s: %s', top, top_procs)
+    top_procs = full_top_procs[:top_number]
 
   logger.debug('Retrieved the running processes')
   return processes, top_procs
@@ -502,7 +486,7 @@ def pull_update_settings():
 
   logger.debug('Retrieving system update settings.')
 
-  if current_system == 'Windows':
+  if hiveary.info.current_system == 'Windows':
     automatic_update_settings = wincom.get_update_settings()
     logger.debug('Retrieved the following update settings: %s',
                  automatic_update_settings)
