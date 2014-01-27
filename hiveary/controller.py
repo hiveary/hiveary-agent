@@ -4,7 +4,7 @@ Hiveary
 https://hiveary.com
 
 Licensed under Simplified BSD License (see LICENSE)
-(C) Hiveary, LLC 2013 all rights reserved
+(C) Hiveary, Inc. 2013-2014 all rights reserved
 """
 
 import glob
@@ -29,7 +29,7 @@ from . import daemon
 from . import monitors
 from . import network
 from . import paths
-from . import sysinfo
+import hiveary.info.system
 
 
 class RealityAuditor(daemon.Daemon):
@@ -118,7 +118,7 @@ class RealityAuditor(daemon.Daemon):
       self.start_monitor(monitor)
 
     # Send the first data dump
-    data = sysinfo.pull_all()
+    data = hiveary.info.system.pull_all()
     data['version'] = __version__
     data['host_id'] = self.network_controller.obj_id
     data['monitors'] = []
