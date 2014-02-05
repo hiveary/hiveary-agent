@@ -4,7 +4,7 @@ Hiveary
 https://hiveary.com
 
 Licensed under Simplified BSD License (see LICENSE)
-(C) Hiveary, LLC 2013 all rights reserved
+(C) Hiveary, Inc. 2013-2014 all rights reserved
 
 Hiveary Resource Monitor
 Monitors the following sources:
