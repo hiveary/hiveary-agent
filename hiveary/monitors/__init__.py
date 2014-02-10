@@ -4,7 +4,7 @@ Hiveary
 https://hiveary.com
 
 Licensed under Simplified BSD License (see LICENSE)
-(C) Hiveary, LLC 2013 all rights reserved
+(C) Hiveary, Inc. 2013-2014 all rights reserved
 
 Base classes for collecting data.
 """
@@ -14,6 +14,9 @@ import copy
 import datetime
 import json
 import logging
+import os
+import platform
+import re
 import time
 
 
@@ -151,7 +154,7 @@ class BaseMonitor(object):
     pass
 
   def get_data(self):
-    """Retrieves the monitored data. This must be defined by a child class.
+    """Retrieves the monitored data. This must be defined by a chget_dataget_dataild class.
 
     Raises:
       NotImplementedError: The method hasn't been overridden in the subclass
@@ -182,18 +185,19 @@ class PollingMixin(object):
     any set alert values."""
 
     data = self.get_data()
-    self.store_data_point(data)
-    self.alert_check(data)
+    if data:
+      self.store_data_point(data)
+      self.alert_check(data)
 
-    # Send a copy of the data to any waiting real-time data streams
-    if self.livestreams:
-      data.pop('extra', None)
-      data_container = {
-          'monitor_id': self.UID,
-          'data': data,
-      }
-      for publish in self.livestreams.itervalues():
-        publish(data_container)
+      # Send a copy of the data to any waiting real-time data streams
+      if self.livestreams:
+        data.pop('extra', None)
+        data_container = {
+            'monitor_id': self.UID,
+            'data': data,
+        }
+        for publish in self.livestreams.itervalues():
+          publish(data_container)
 
 
 class IntervalMixin(object):
@@ -275,10 +279,89 @@ class UsageMonitor(IntervalMixin, BaseMonitor):
         self.alert_counters[source]
 
 
-class LogMonitor(BaseMonitor):
+class LogMonitor(PollingMixin, BaseMonitor):
   """Base class for all "log" type monitors."""
 
   TYPE = 'log'
+  MONITOR_TIMER = None
+  AGGREGATION_TIMER = None
+  LOG_LOCATIONS = {}
+
+  # Regex of any data that should be stripped from the log message,
+  # for example PIDs.
+  REMOVE_REGEX = r'^$'
+
+  def __init__(self, log_location=None, *args, **kwargs):
+    """"Initialize the log monitor.
+
+    Args:
+      log_location: The path to the log file to monitor. If omitted, the location
+      will attempt to be found automatically.
+    """
+
+    self.log_location = log_location or self.find_location()
+    if not self.log_location:
+      raise IOError('Unable to find log location')
+    if not os.path.exists(self.log_location):
+      raise IOError('Invalid log location: %s' % self.log_location)
+
+    self.file_desc = open(self.log_location, 'r')
+    self.remove_regex = re.compile(self.REMOVE_REGEX)
+
+    super(LogMonitor, self).__init__(*args, **kwargs)
+
+  def find_location(self):
+    """Finds the location of the log for this monitor based on the
+    current platform.
+
+    Returns:
+      A string of the log location.
+    """
+
+    system_type = platform.system()
+    return self.LOG_LOCATIONS.get(system_type, None)
+
+  def run(self):
+    for data in self.get_data():
+      self.store_data_point(data)
+      self.alert_check(data)
+
+      # Send a copy of the data to any waiting real-time data streams
+      if self.livestreams:
+        data.pop('extra', None)
+        data_container = {
+            'monitor_id': self.UID,
+            'data': data,
+        }
+        for publish in self.livestreams.itervalues():
+          publish(data_container)
+
+  def get_data(self):
+    yield self.file_desc.readlines()
+
+  def new_line(self, line):
+    """Takes a raw log line and handles processing and storing it.
+    This should be overridden by the subclass.
+
+    Args:
+      line: The full, unprocessed log line.
+    """
+
+    self.clean_line(line)
+
+  def clean_line(self, line):
+    """Strips out any potentially confusing information from log lines. For
+    example, the line may contain process[PID] in which case the PID portion
+    should be removed.
+
+    Args:
+      line: The raw log line.
+    Returns:
+      A sanitized version of the line.
+    """
+
+    cleaned = self.remove_regex.sub('', line)
+    return cleaned
 
 
 class StatusMonitor(BaseMonitor):
