@@ -189,7 +189,7 @@ def read_system_logs():
   if hiveary.info.current_system == 'Windows':
     for event_log_source in ('Application', 'System', 'Security'):
       system_logs[event_log_source] = read_event_log(logtype=event_log_source)
-  else:
+  elif hiveary.info.current_system == 'Linux':
     dmesg_lines = hiveary.info.dmesg.human_dmesg()
     if dmesg_lines:
       system_logs['dmesg'] = dmesg_lines

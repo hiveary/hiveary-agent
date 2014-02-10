@@ -17,8 +17,6 @@ Licensed under Simplified BSD License (see LICENSE)
 pydmesg: dmesg with human-readable timestamps
 """
 
-from __future__ import with_statement
-
 import re
 import subprocess
 import sys
@@ -62,25 +60,28 @@ def human_dmesg(source=None, max_lines=20):
 
   # Reversing the array shows the newest lines first, to stay consistent
   # with how other logs are presented.
-  dmesg_data = exec_process(['dmesg', '-T'], True).split('\n')
-  dmesg_data.reverse()
-  for line in dmesg_data:
-    if not line:
-      continue
+  try:
+    dmesg_data = exec_process(['dmesg', '-T'], True).split('\n')
+    dmesg_data.reverse()
+    for line in dmesg_data:
+      if not line:
+        continue
 
-    if source:
-      match = _dmesg_line_regex.match(line)
-      if match:
-        source_match = match.groupdict('UNKNOWN')['source']
-        if source in source_match:
-          formatted_dmesg.append(line)
-    else:
-      formatted_dmesg.append(line)
+      if source:
+        match = _dmesg_line_regex.match(line)
+        if match:
+          source_match = match.groupdict('UNKNOWN')['source']
+          if source in source_match:
+            formatted_dmesg.append(line)
+      else:
+        formatted_dmesg.append(line)
 
-    if len(formatted_dmesg) >= max_lines:
-      break
-
-  return formatted_dmesg
+      if len(formatted_dmesg) >= max_lines:
+        break
+  except RuntimeError:
+    return []
+  else:
+    return formatted_dmesg
 
 
 if __name__ == '__main__':
