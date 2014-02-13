@@ -270,9 +270,9 @@ class UsageMonitor(IntervalMixin, BaseMonitor):
 
           # Put a delay on the next alert to prevent a flood of alert messages
           self.alert_delays[source] = now + self.backoff
-          self.alert_counters[source]
+          self.alert_counters[source] = 0
       else:
-        self.alert_counters[source]
+        self.alert_counters[source] = 0
 
 
 class LogMonitor(BaseMonitor):
@@ -281,7 +281,46 @@ class LogMonitor(BaseMonitor):
   TYPE = 'log'
 
 
-class StatusMonitor(BaseMonitor):
+class StatusMonitor(IntervalMixin, BaseMonitor):
   """Base class for all "status" type monitors."""
 
   TYPE = 'status'
+
+  def alert_check(self, data):
+    """Checks to see if the monitored sources are in the expected state.
+
+    Args:
+      data: dictonary of source to its state.
+    """
+
+    now = time.time()
+
+    for source in self.monitored_source_names:
+      delay = self.alert_delays.get(source)
+      expected_state = self.expected_values.get(source)
+      current_state = data.get(source)
+
+      if delay and delay <= now:
+        self.alert_delays.pop(delay)
+        delay = None
+
+      if expected_state and not delay and expected_state != current_state:
+        self.logger.debug('Current %s state is %s, expected state is %s', source,
+                          current_state, expected_state)
+
+        extra = data.pop('extra', {})
+        alert = {
+            'expected_state': expected_state,
+            'current_state': current_state,
+            'timestamp': now,
+            'monitor': {
+                'id': self.UID,
+                'name': self.NAME,
+                'type': self.TYPE,
+                'source': source,
+            },
+            'event_data': self.extra_alert_data(source, extra) or {},
+        }
+        self.send_alert(alert)
+        # Put a delay on the next alert to prevent a flood of alert messages
+        self.alert_delays[source] = now + self.backoff
