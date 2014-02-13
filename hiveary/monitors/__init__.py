@@ -270,9 +270,9 @@ class UsageMonitor(IntervalMixin, BaseMonitor):
 
           # Put a delay on the next alert to prevent a flood of alert messages
           self.alert_delays[source] = now + self.backoff
-          self.alert_counters[source]
+          self.alert_counters[source] = 0
       else:
-        self.alert_counters[source]
+        self.alert_counters[source] = 0
 
 
 class LogMonitor(BaseMonitor):
