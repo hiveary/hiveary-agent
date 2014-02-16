@@ -141,7 +141,8 @@ class NetworkController(object):
     self.logger.debug('Connecting to %s as user %s', self.amqp_server, self.user_id)
     self.amqp = kombu.Connection(self.amqp_server, self.user_id, self.amqp_password,
                                  port=5671, ssl=ssl_options, insist=True,
-                                 transport='amqplib')
+                                 transport='amqplib',
+                                 transport_options={'confirm_publish': True})
 
     self.amqp.ensure_connection(errback=self.amqp_errback, interval_max=60)
     self.logger.info('SSL-AMQP connection established')
