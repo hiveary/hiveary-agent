@@ -28,7 +28,7 @@ class BaseMonitor(object):
   NAME = 'base'
   TYPE = None
   UID = None  # Can be set to any value guaranteed to be unique, a uuid.uuid4() is recommended
-  SOURCES = {}
+  SOURCES = None
 
   def __init__(self, backoff=None, logger=None):
     """Initialize the monitor.
@@ -58,10 +58,6 @@ class BaseMonitor(object):
     self.alert_delays = {}
     self.livestreams = {}
 
-    # Store just the source names separately to prevent having to repeatedly
-    # look them up
-    self.monitored_source_names = set(self.SOURCES.keys())
-
   def store_data_point(self, data):
     """Puts a single data point into the database.
 
@@ -75,7 +71,13 @@ class BaseMonitor(object):
     monitor_data = copy.copy(data)
     monitor_data.pop('extra', None)
 
-    if set(monitor_data.keys()) != self.monitored_source_names:
+    # TODO make this update monitor sources.
+    if self.TYPE == 'usage':
+      monitored_sources = self.SOURCES.keys()
+    elif self.TYPE == 'status' or self.TYPE == 'log':
+      monitored_sources = self.SOURCES
+
+    if set(monitor_data.keys()) != set(monitored_sources):
       raise AttributeError('The returned data does not match the '
                            'source list for monitor %s' % self.NAME)
 
@@ -225,6 +227,7 @@ class UsageMonitor(IntervalMixin, BaseMonitor):
   """Base class for all "usage" type monitors."""
 
   TYPE = 'usage'
+  SOURCES = {}
 
   def alert_check(self, data):
     """Checks the monitored data to determine if an alert should be created.
@@ -236,7 +239,7 @@ class UsageMonitor(IntervalMixin, BaseMonitor):
 
     now = time.time()
 
-    for source in self.monitored_source_names:
+    for source in self.SOURCES.keys():
       delay = self.alert_delays.get(source)
       threshold = self.expected_values.get(source)
       usage = data.get(source)
@@ -285,6 +288,8 @@ class StatusMonitor(IntervalMixin, BaseMonitor):
   """Base class for all "status" type monitors."""
 
   TYPE = 'status'
+  STATES = []
+  SOURCES = []
 
   def alert_check(self, data):
     """Checks to see if the monitored sources are in the expected state.
@@ -295,7 +300,7 @@ class StatusMonitor(IntervalMixin, BaseMonitor):
 
     now = time.time()
 
-    for source in self.monitored_source_names:
+    for source in self.SOURCES:
       delay = self.alert_delays.get(source)
       expected_state = self.expected_values.get(source)
       current_state = data.get(source)
