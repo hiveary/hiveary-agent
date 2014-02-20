@@ -1,3 +1,11 @@
+hiveary-agent (1.3.2-1) unstable; urgency=low
+
+  * Fixed an issue with flap protection counters not resetting.
+  * Updated the netifaces dependancy to remove external references.
+  * Enabled AMQP publisher acknowledgements.
+
+ -- Hiveary <info@hiveary.com>  Thu, 20 Feb 2014 09:26:02 -0500
+
 hiveary-agent (1.3.1-1) unstable; urgency=low
 
   * Updated the CA cert bundle for SSL verification.
