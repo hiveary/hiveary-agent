@@ -108,7 +108,7 @@ else:
   install_requires = [
       'amqplib>=1.0.2',
       'kombu>=3.0.8',
-      'netifaces>=0.7',
+      'netifaces-merged>=0.9.0',
       'oauth2>=1.5.211',
       'psutil>=1.1.0',
       'simplejson>=3.0.5',
