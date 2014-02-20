@@ -21,7 +21,7 @@ import subprocess
 if subprocess.mswindows:
   import win32net
   import win32service
-  import wincom
+  from . import wincom
 else:
   import grp
   import pwd
