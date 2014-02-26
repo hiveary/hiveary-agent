@@ -129,6 +129,9 @@ class RealityAuditor(daemon.Daemon):
           'id': monitor.UID,
           'type': monitor.TYPE,
       }
+      if monitor.TYPE == 'status':
+        monitor_data['states'] = monitor.STATES
+
       data['monitors'].append(monitor_data)
     reactor.callLater(self.INITIAL_DELAY,
                       self.network_controller.publish_info_message,
