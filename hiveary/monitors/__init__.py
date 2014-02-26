@@ -228,6 +228,7 @@ class UsageMonitor(IntervalMixin, BaseMonitor):
 
   TYPE = 'usage'
   SOURCES = {}
+  DEFAULT_TYPE = None
 
   def alert_check(self, data):
     """Checks the monitored data to determine if an alert should be created.

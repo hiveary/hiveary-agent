@@ -132,6 +132,9 @@ class RealityAuditor(daemon.Daemon):
       if monitor.TYPE == 'status':
         monitor_data['states'] = monitor.STATES
 
+      elif monitor.TYPE == 'usage':
+        monitor_data['default_type'] = monitor.DEFAULT_TYPE
+
       data['monitors'].append(monitor_data)
     reactor.callLater(self.INITIAL_DELAY,
                       self.network_controller.publish_info_message,
