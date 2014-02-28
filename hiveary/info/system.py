@@ -494,3 +494,24 @@ def pull_update_settings():
     automatic_update_settings = {}
 
   return automatic_update_settings
+
+
+def which(program):
+  """Determines the path of the given binary.
+
+  Taken from:
+  https://stackoverflow.com/questions/377017/test-if-executable-exists-in-python/377028#377028
+
+  Args:
+    program: The binary to search for in the path.
+  Returns:
+    A string of the full path to the program, or None if it could not be found.
+  """
+
+  for path in os.environ['PATH'].split(os.pathsep):
+    path = path.strip('"')
+    exe_file = os.path.join(path, program)
+    if os.path.isfile(exe_file) and os.access(exe_file, os.X_OK):
+      return exe_file
+
+  return None

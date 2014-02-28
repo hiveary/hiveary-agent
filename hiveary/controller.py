@@ -16,6 +16,7 @@ import logging
 import os
 import signal
 import socket
+import subprocess
 import sys
 from twisted.internet import reactor, task
 
@@ -28,8 +29,8 @@ from . import __version__
 from . import daemon
 from . import monitors
 from . import network
-from . import paths
 import hiveary.info.system
+import hiveary.paths
 
 
 class RealityAuditor(daemon.Daemon):
@@ -52,6 +53,8 @@ class RealityAuditor(daemon.Daemon):
     """
 
     self.logger = logger or logging.getLogger('hiveary_agent.controller')
+
+    self.startup_path = os.path.abspath(os.path.curdir)
 
     # Check that the directory for the pid file exists, and if not then use
     # the same directory as the config file
@@ -81,14 +84,15 @@ class RealityAuditor(daemon.Daemon):
         self.extra_options[option] = value
 
     # Network controller is initalized by the agent with the necessary
-    # authentication credentials
+    # authentication credentials and hooked up to allow for updating.
     self.network_controller = network.NetworkController(reactor)
+    self.network_controller.agent_update = self.manual_agent_update
     self.set_config(parsed_args, stored_config)
 
     # Setup a handler to interpret interrupts since twisted overrides them
     signal.signal(signal.SIGINT, self.signal_handler)
 
-    executable, args = paths.find_executable()
+    executable, args = hiveary.paths.find_executable()
     self.logger.debug('Setting daemon to use %s %s', executable, args)
     super(RealityAuditor, self).__init__(pid_file, executable=executable,
                                          args=args)
@@ -322,10 +326,14 @@ class RealityAuditor(daemon.Daemon):
     """Setup an event to restart the agent after the reactor stops."""
 
     self.logger.warn('The agent is restarting...')
+    executable, args = hiveary.paths.find_executable()
 
-    reactor.addSystemEventTrigger('after', 'shutdown', self.fork,
-                                  detached=False, exit=False)
-    self.shutdown()
+    # Remove any control commands from the args
+    args = list(set(args).difference({'start', 'restart', 'stop', 'status'}))
+
+    full_command = [executable] + args + ['restart']
+    self.logger.debug('Running from %s: %s', self.startup_path, full_command)
+    subprocess.Popen(full_command, cwd=self.startup_path)
 
   def auto_agent_update(self):
     """Checks for a new version of the running application from the remote server.
@@ -345,3 +353,53 @@ class RealityAuditor(daemon.Daemon):
       self.restart()
     else:
       self.logger.info('No update found')
+
+  def manual_agent_update(self, version=None):
+    """Manually updates the agent to a new version.
+
+    Args:
+      version: The version to update the agent to.
+    """
+
+    self.logger.info('Trying to update to version %s from %s', version, __version__)
+
+    if version == __version__:
+      self.logger.warn('Already on version %s, the updater will not proceed',
+                       version)
+      return
+
+    pip_binary = hiveary.info.system.which('pip')
+
+    # Figure out what kind of update to perform
+    if hasattr(self, 'frozen'):
+      reactor.callInThread(self.auto_agent_update)
+    elif pip_binary:
+      pkg_name = 'hiveary-agent=={0}'.format(version)
+      reactor.callInThread(self.pip_agent_update, pip_binary, pkg_name)
+    else:
+      raise NotImplementedError('Only esky and pip updates are currently implemented')
+
+  def pip_agent_update(self, pip, pkg_name):
+    """Updates the running agent using pip.
+
+    Args:
+      pip: The path to the pip binary.
+      pkg_name: The name of the package to try updating with pip.
+    """
+
+    proc = subprocess.Popen([pip, 'install', '--upgrade', pkg_name],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    output = proc.communicate()[0]
+    self.logger.debug('Result of pip update:\n%s', output)
+
+    if proc.returncode != 0:
+      self.logger.error('Attempt to install %s failed with code %d', pkg_name,
+                        proc.returncode)
+    else:
+      # pip will return 0 if nothing was updated so we need to check
+      packages = subprocess.check_output([pip, 'freeze'])
+      if pkg_name in packages:
+        self.logger.info('Pip successfully installed %s', pkg_name)
+        self.restart()
+      else:
+        self.logger.error('Pip failed to install %s', pkg_name)

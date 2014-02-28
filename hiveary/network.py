@@ -191,7 +191,7 @@ class NetworkController(object):
 
     while self.running:
       try:
-        self.amqp.drain_events()
+        self.amqp.drain_events(timeout=1)
       except (socket.timeout, socket.error):
         pass
       except Exception, err:
@@ -468,6 +468,15 @@ class NetworkController(object):
             self.logger.info('Livestream stopped')
       else:
         self.logger.warn('Monitor "%s" is not enabled!', monitor_id)
+    elif task_name == 'update':
+      # An update for the agent is available
+      version = client_task['command']['version']
+
+      try:
+        self.agent_update(self.reactor, version=version)
+      except (NotImplementedError, NameError):
+        self.logger.warn('Could not complete update task:', exc_info=True)
+        data['status'] = 'NOT_IMPLEMENTED'
     else:
       self.logger.error('Unable to perform requested task')
       data['status'] = 'NOT_IMPLEMENTED'
