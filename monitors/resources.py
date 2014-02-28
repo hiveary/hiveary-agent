@@ -11,7 +11,6 @@ Monitors the following sources:
   bytes_sent, bytes_recv, disk, cpu, ram
 """
 
-import copy
 import psutil
 import time
 
@@ -96,13 +95,12 @@ class ResourceMonitor(monitors.PollingMixin, monitors.UsageMonitor):
     current_usage['extra'] = extra_data
     return current_usage
 
-  def extra_alert_data(self, source, data):
+  def extra_alert_data(self, source):
     """Finds additional information that should be sent when an alert is fired
     for this monitor.
 
     Args:
       source: The source of the fired alert.
-      data: A dictionary of information specific to the monitored resources.
     Returns:
       A dictionary containing the additonal information to send with the alert.
     """
@@ -115,7 +113,7 @@ class ResourceMonitor(monitors.PollingMixin, monitors.UsageMonitor):
       top = None
 
     procs, top_procs = hiveary.info.system.pull_processes(top=top)
-    extra_data = copy.copy(data.get(source, {}))
+    extra_data = {}
     extra_data['current_procesess'] = procs
 
     if top and top_procs:

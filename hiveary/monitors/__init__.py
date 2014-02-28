@@ -70,17 +70,6 @@ class BaseMonitor(object):
 
     monitor_data = copy.copy(data)
     monitor_data.pop('extra', None)
-
-    # TODO make this update monitor sources.
-    if self.TYPE == 'usage':
-      monitored_sources = self.SOURCES.keys()
-    elif self.TYPE == 'status' or self.TYPE == 'log':
-      monitored_sources = self.SOURCES
-
-    if set(monitor_data.keys()) != set(monitored_sources):
-      raise AttributeError('The returned data does not match the '
-                           'source list for monitor %s' % self.NAME)
-
     monitor_data['timestamp'] = time.time()
     self.data_points.append(monitor_data)
 
@@ -256,7 +245,9 @@ class UsageMonitor(IntervalMixin, BaseMonitor):
         self.alert_counters[source] += 1
         if self.alert_counters[source] >= self.FLOP_PROTECTION_COUNTER:
           # Send an alert to the server with any extra information for this source
-          extra = data.pop('extra', {})
+          extra_data = data.pop('extra', {}).get(source, {})
+          extra_alert_data = self.extra_alert_data(source)
+          extra_data.update(extra_alert_data)
           alert = {
               'threshold': threshold,
               'current_usage': usage,
@@ -268,7 +259,7 @@ class UsageMonitor(IntervalMixin, BaseMonitor):
                   'source': source,
                   'source_type': self.SOURCES[source],
               },
-              'event_data': self.extra_alert_data(source, extra) or {},
+              'event_data': extra_data
           }
           self.send_alert(alert)
 
