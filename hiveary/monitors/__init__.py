@@ -14,6 +14,8 @@ import copy
 import datetime
 import json
 import logging
+import shlex
+import subprocess
 import time
 
 
@@ -164,6 +166,82 @@ class BaseMonitor(object):
     pass
 
 
+class ExternalMonitor(BaseMonitor):
+  """Class used to load an external monitor with an external data pull."""
+
+  def __init__(self, *args, **kwargs):
+    self.UID = kwargs.pop('uid')
+    # We have to call super after setting the UID as BaseMonitor expects a UID.
+    # We need to call base monitor first, for the logger from the get data command.
+    super(ExternalMonitor, self).__init__()
+
+    self.NAME = kwargs.pop('name')
+    self.get_data_command = shlex.split(kwargs.pop('get_data'))
+    self.extra_data_command = shlex.split(kwargs.pop('extra_data', ''))
+
+    monitor_type = kwargs.pop('type').lower()
+    sources = kwargs.pop('sources', None)
+    default_type = kwargs.pop('default_type', '')
+    states = kwargs.pop('states', None)
+
+    # Monitor type specific instantiation
+    if monitor_type == 'usage':
+      if not sources:
+        sources = {}
+        for source in self.get_data().keys():
+          sources[source] = default_type
+      if sources and type(sources) is not dict:
+        raise TypeError('Sources for usage monitor is not a dict')
+      self.DEFAULT_TYPE = default_type
+
+    elif monitor_type == 'status':
+      if not sources:
+        sources = self.get_data().keys()
+      if sources and type(sources) is not list:
+        raise TypeError('Sources for status monitor is not a list')
+      if type(states) is not list:
+        raise TypeError('States for status monitor is not a list')
+      self.STATES = states
+
+    self.SOURCES = sources
+
+    # Load in any other overrides provided
+    for key, value in kwargs.iteritems():
+      if hasattr(self, key):
+        setattr(self, key, value)
+    self.logger.info('Monitoring the following sources: %s', self.SOURCES)
+
+  def get_data(self):
+    data = {}
+    try:
+      proc = subprocess.Popen(self.get_data_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+      data = json.loads(proc.communicate()[0])
+    except ValueError as e:
+      self.logger.warn('Failed to parse get_data output for %s monitor', self.NAME)
+    except:
+      self.logger.error('Get data failed for %s monitor', self.NAME, exc_info=True)
+
+    if type(data) is not dict:
+      self.logger.warn('Get data output was not a dictionary for %s monitor, removing data', self.NAME)
+      data = {}
+    return data
+
+  def extra_alert_data(self):
+    data = {}
+    if self.extra_data_command:
+      try:
+        proc = subprocess.Popen(self.extra_data_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        data = json.loads(proc.communicate()[0])
+      except ValueError as e:
+        self.logger.debug('Failed to parse extra_data output for %s monitor', self.NAME)
+      except:
+        self.logger.error('Extra data failed for %s monitor', self.NAME, exc_info=True)
+      if type(data) is not dict:
+        self.logger.warn('Get extra alert data output was not a dictionary for %s monitor, removing data', self.NAME)
+        data = {}
+    return data
+
+
 class PollingMixin(object):
   """Mixin class for monitors that expect to regularly poll their data sources
   for new data."""
@@ -216,6 +294,7 @@ class UsageMonitor(IntervalMixin, BaseMonitor):
   """Base class for all "usage" type monitors."""
 
   TYPE = 'usage'
+  MONITOR_TIMER = 30
   SOURCES = {}
   DEFAULT_TYPE = None
 

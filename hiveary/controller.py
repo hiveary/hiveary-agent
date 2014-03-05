@@ -42,6 +42,7 @@ class RealityAuditor(daemon.Daemon):
   PID_FILE = '/var/run/hiveary-agent.pid'  # Default location of the PID file
   REMOTE_HOST = 'hiveary.com'  # Default server to connect to
   MONITORS_DIR = '/usr/lib/hiveary/'  # Default location to find monitor modules
+  EXTERNAL_DIR = '/etc/hiveary/external/' # Default location to find monitor config files
 
   def __init__(self, parsed_args, stored_config, logger=None):
     """Initialization when the agent is started.
@@ -74,6 +75,15 @@ class RealityAuditor(daemon.Daemon):
         os.makedirs(self.monitors_dir)
 
     self.monitors = []
+
+    # Check if the external monitor config directory exists, otherwise place it
+    # under the location of the config file
+    self.external_dir = stored_config.get('external_dir') or self.EXTERNAL_DIR
+    if not os.path.isdir(self.external_dir):
+      directory = os.path.dirname(stored_config['filename'])
+      self.external_dir = os.path.join(directory, 'external')
+      if not os.path.isdir(self.external_dir):
+        os.makedirs(self.external_dir)
 
     # Get and possibly save optional configuration parameters. If the defaults
     # are used, they won't be saved.
@@ -157,48 +167,90 @@ class RealityAuditor(daemon.Daemon):
     it will attempt to download one.
     """
 
-    # Check that we have monitors enabled in the config, and know where to find them
-    if self.monitors_dir:
-      # Add the monitors dir to path so we can import monitors
-      self.logger.info('Loading monitors from %s', self.monitors_dir)
-      sys.path.insert(0, self.monitors_dir)
+    # Add the monitors dir to path so we can import monitors
+    self.logger.info('Loading monitors from %s', self.monitors_dir)
+    sys.path.insert(0, self.monitors_dir)
 
-      # When frozen, the monitors included with the current version also
-      # need to be loaded
-      if hasattr(sys, 'frozen'):
-        frozen_monitors_dir = os.path.join(os.path.dirname(sys.executable),
-                                           'monitors')
-        sys.path.insert(0, frozen_monitors_dir)
-        self.logger.debug('Also loading frozen monitors from: %s',
-                          frozen_monitors_dir)
+    # When frozen, the monitors included with the current version also
+    # need to be loaded
+    if hasattr(sys, 'frozen'):
+      frozen_monitors_dir = os.path.join(os.path.dirname(sys.executable),
+                                         'monitors')
+      sys.path.insert(0, frozen_monitors_dir)
+      self.logger.debug('Also loading frozen monitors from: %s',
+                        frozen_monitors_dir)
 
-      # Find all of the monitor modules.
-      monitor_map = {}
-      for filename in glob.glob('%s/*.py' % self.monitors_dir):
-        monitor = os.path.basename(filename).split('.')[0]
-        monitor_map['hiveary.monitors.%s' % monitor] = filename
+    # Find all of the monitor modules.
+    monitor_map = {}
+    for filename in glob.glob(os.path.join(self.monitors_dir, '*.py')):
+      monitor = os.path.basename(filename).split('.')[0]
+      monitor_map['hiveary.monitors.%s' % monitor] = filename
 
-      # Import all of the monitors and add the instances to our monitor list.
-      impala.register(monitor_map)
-      object_filter = lambda obj: inspect.isclass(obj) and monitors.BaseMonitor in inspect.getmro(obj)
-      for module_name in monitor_map.keys():
+    # Import all of the monitors and add the instances to our monitor list.
+    impala.register(monitor_map)
+    object_filter = lambda obj: inspect.isclass(obj) and monitors.BaseMonitor in inspect.getmro(obj)
+    for module_name in monitor_map.keys():
+      try:
+        module = importlib.import_module(module_name)
+      except ImportError:
+        self.logger.error('Failed to import module %s', module_name)
+        continue
+
+      # Filter down to all classes that inherit the monitors.BaseMonitor class.
+      for class_name, monitor_class in inspect.getmembers(module, object_filter):
+        self.logger.info('Loading %s from %s', class_name, module_name)
         try:
-          module = importlib.import_module(module_name)
-        except ImportError:
-          self.logger.error('Failed to import module %s', module_name)
+          monitor = monitor_class()
+        except Exception:
+          self.logger.error('Failed to load class %s from module %s',
+                            class_name, module_name)
+          self.logger.debug('Full loading error:', exc_info=True)
+        else:
+          self.monitors.append(monitor)
+
+    # Load all external monitors
+    self.logger.info('Loading external monitors from %s', self.external_dir)
+    for filename in glob.glob(os.path.join(self.external_dir, '*.mon')):
+      try:
+        with open(filename, 'r') as monitor_config:
+          config = json.load(monitor_config)
+          classname = os.path.splitext(os.path.basename(filename))[0]
+      except IOError as e:
+        self.logger.warn('Failed to open external monitor config %s file', filename)
+      except ValueError as e:
+        self.logger.warn('Failed to parse JSON in external monitor config %s', filename)
+      except:
+        self.logger.warn('Failed to load external monitor config %s', filename, exc_info=True)
+      else:
+
+        if (not config.get('type') or not config.get('name') or not config.get('uid')
+            or not config.get('get_data')):
+          self.logger.warn('Not all required fields present for %s external monitor', filename)
           continue
 
-        # Filter down to all classes that inherit the monitors.BaseMonitor class.
-        for class_name, monitor_class in inspect.getmembers(module, object_filter):
-          self.logger.info('Loading %s from %s', class_name, module_name)
-          try:
-            monitor = monitor_class()
-          except Exception:
-            self.logger.error('Failed to load class %s from module %s',
-                              class_name, module_name)
-            self.logger.debug('Full loading error:', exc_info=True)
-          else:
-            self.monitors.append(monitor)
+        monitor_type = config.get('type', '').lower()
+        if monitor_type == 'usage':
+          base_class = monitors.UsageMonitor
+          if not config.get('sources') and not config.get('default_type'):
+            self.logger.warn('No sources or default type provided for External Usage Monitor %s', filename)
+            continue
+        elif monitor_type == 'status':
+          if not config.get('states'):
+            self.logger.warn('No states provided for External Status Monitor %s', filename)
+          base_class = monitors.StatusMonitor
+        else:
+          self.logger.warn('Unknown monitor type %s provided for external monitor %s',
+                           monitor_type, filename)
+          continue
+
+        methods = {}
+        MonitorClass = type(classname, (monitors.ExternalMonitor, base_class, monitors.PollingMixin), methods)
+        try:
+          monitor = MonitorClass(**config)
+        except Exception as e:
+          self.logger.error('Failed to instantiate External Monitor %s, due to %s', filename, e, exc_info=True)
+        else:
+          self.monitors.append(monitor)
 
   def start_monitor(self, monitor):
     """Starts a given monitor.
