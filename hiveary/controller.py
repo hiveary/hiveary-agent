@@ -135,6 +135,7 @@ class RealityAuditor(daemon.Daemon):
     data = hiveary.info.system.pull_all()
     data['version'] = __version__
     data['host_id'] = self.network_controller.obj_id
+    data['stack'] = self.STACK
     data['monitors'] = []
     for monitor in self.monitors:
       monitor_data = {
@@ -143,6 +144,7 @@ class RealityAuditor(daemon.Daemon):
           'id': monitor.UID,
           'type': monitor.TYPE,
       }
+      monitor_data['services'] = monitor.SERVICES or self.SERVICES
       if monitor.TYPE == 'status':
         monitor_data['states'] = monitor.STATES
 
@@ -314,6 +316,10 @@ class RealityAuditor(daemon.Daemon):
     self.network_controller.amqp_server = stored_config.get('amqp_server') or 'amqp.{domain}'.format(
         domain=self.network_controller.remote_host)
     self.network_controller.ca_bundle = stored_config.get('ca_bundle')
+
+    # Set the global services and stacks
+    self.SERVICES = stored_config.get('services')
+    self.STACK = stored_config.get('stack')
 
     # Update the config file if needed
     if args.get('update'):

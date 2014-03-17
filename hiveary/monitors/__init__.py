@@ -31,6 +31,7 @@ class BaseMonitor(object):
   TYPE = None
   UID = None  # Can be set to any value guaranteed to be unique, a uuid.uuid4() is recommended
   SOURCES = None
+  SERVICES = None
 
   def __init__(self, backoff=None, logger=None):
     """Initialize the monitor.
@@ -175,6 +176,7 @@ class ExternalMonitor(BaseMonitor):
     # We need to call base monitor first, for the logger from the get data command.
     super(ExternalMonitor, self).__init__()
 
+    self.SERVICES = kwargs.pop('services', None)
     self.NAME = kwargs.pop('name')
     self.get_data_command = shlex.split(kwargs.pop('get_data'))
     self.extra_data_command = shlex.split(kwargs.pop('extra_data', ''))
