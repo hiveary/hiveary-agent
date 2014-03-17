@@ -19,7 +19,7 @@ import hiveary.info.logs
 import hiveary.info.system
 
 
-class ResourceMonitor(monitors.PollingMixin, monitors.UsageMonitor):
+class ResourceMonitor(monitors.ProcessMixin, monitors.PollingMixin, monitors.UsageMonitor):
   """Monitors system resource data."""
 
   MONITOR_TIMER = 10
@@ -54,9 +54,6 @@ class ResourceMonitor(monitors.PollingMixin, monitors.UsageMonitor):
     network_io = psutil.network_io_counters()
     time_diff = now - self.last_check
     ram_usage = psutil.phymem_usage()
-    disk_usage = {}
-    for disk in self.disks:
-      disk_usage[disk] = psutil.disk_usage(disk)
 
     current_usage = {
         'bytes_sent': (network_io.bytes_sent - self.total_net_io.bytes_sent) / time_diff,
@@ -65,34 +62,15 @@ class ResourceMonitor(monitors.PollingMixin, monitors.UsageMonitor):
         'cpu': psutil.cpu_percent(interval=None),
     }
 
-    extra_data = {
-        'ram': {
-            'total_memory': ram_usage.total,
-            'used_memory': ram_usage.used,
-            'free_memory': ram_usage.free,
-            'resource': 'RAM',
-        },
-        'cpu': {
-            'resource': 'CPU',
-        }
-    }
-
     # Add in disk usage data
-    for device, usage in disk_usage.iteritems():
-      disk_name = 'disk_%s' % device
+    for disk in self.disks:
+      usage = psutil.disk_usage(disk)
+      disk_name = 'disk_{}'.format(disk)
       current_usage[disk_name] = usage.percent
-      extra_data[disk_name] = {
-          'disk': device,
-          'total_space': usage.total,
-          'used_space': usage.used,
-          'free_space': usage.free,
-      }
 
     self.last_check = now
     self.total_net_io = network_io
 
-    # Store the values
-    current_usage['extra'] = extra_data
     return current_usage
 
   def extra_alert_data(self, source):
@@ -102,47 +80,73 @@ class ResourceMonitor(monitors.PollingMixin, monitors.UsageMonitor):
     Args:
       source: The source of the fired alert.
     Returns:
-      A dictionary containing the additonal information to send with the alert.
+      A list of dictionaries containing section titles and data
     """
+
+    extra_data = []
+    top = None
 
     if source == 'ram':
       top = 'memory_percent'
+      ram_usage = psutil.phymem_usage()
+      extra_data.append({
+        'title': 'Extra RAM Data',
+         'data': {
+            'total_memory': ram_usage.total,
+            'used_memory': ram_usage.used,
+            'free_memory': ram_usage.free,
+         },
+      })
     elif source == 'cpu':
       top = 'cpu_percent'
-    else:
-      top = None
+    elif source.startswith('disk'):
+      device_name = source.split('disk_')[1]
+      usage = psutil.disk_usage(device_name)
+      extra_data.append({
+          'title': 'Extra Disk data',
+          'data': {
+            'disk': device_name,
+            'total_space': usage.total,
+            'used_space': usage.used,
+            'free_space': usage.free,
+          }
+      })
 
-    procs, top_procs = hiveary.info.system.pull_processes(top=top)
-    extra_data = {}
-    extra_data['current_procesess'] = procs
+    if top:
+      top_procs = hiveary.info.system.pull_processes(top=top)
+      if top_procs:
+        # Find out any more information available about these processes and
+        # provide those details to the user.
+        top_procs_extra = []
+        for process in top_procs:
+          # Pull out just a subset of information
+          proc_subset = {
+              'name': process['name'],
+              'pid': process['pid'],
+              top: process[top],
+              'logs': {},
+          }
 
-    if top and top_procs:
-      # Find out any more information available about these processes and
-      # provide those details to the user.
-      top_procs_extra = []
-      for process in top_procs:
-        # Pull out just a subset of information
-        proc_subset = {
-            'name': process['name'],
-            'pid': process['pid'],
-            top: process[top],
-            'logs': {},
-        }
+          # Read any available log information
+          for log_file in hiveary.info.logs.log_files(process):
+            last_logs = hiveary.info.logs.tail_file(log_file)
+            proc_subset['logs'][log_file] = last_logs
 
-        # Read any available log information
-        for log_file in hiveary.info.logs.log_files(process):
-          last_logs = hiveary.info.logs.tail_file(log_file)
-          proc_subset['logs'][log_file] = last_logs
-        top_procs_extra.append(proc_subset)
+          # Remove log subsection if logs not available
+          if not proc_subset['logs']:
+            proc_subset.pop('logs')
+          top_procs_extra.append(proc_subset)
 
-      extra_data['top_processes'] = top_procs_extra
-      system_logs = hiveary.info.logs.read_system_logs()
+        extra_data.append({
+          'title': 'Top processes by {} usage'.format(source),
+          'data': top_procs_extra,
+        })
 
-      # Only put keys in the dictionary if they actually have values, to
-      # cut down on the noise in the alert message.
-      if system_logs:
-        extra_data['system_logs'] = system_logs
-      if not proc_subset['logs']:
-        del(proc_subset['logs'])
+    system_logs = hiveary.info.logs.read_system_logs()
+    if system_logs:
+      extra_data.append({
+        'title': 'System logs',
+        'data': system_logs,
+      })
 
     return extra_data

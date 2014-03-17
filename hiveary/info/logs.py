@@ -198,4 +198,4 @@ def read_system_logs():
     if syslog_lines:
       system_logs['syslog'] = syslog_lines
 
-  return system_logs
+  return [system_logs]

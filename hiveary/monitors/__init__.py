@@ -18,6 +18,8 @@ import shlex
 import subprocess
 import time
 
+import hiveary.info.system
+
 
 class BaseMonitor(object):
   """Default class for defining a monitor. This does nothing on its own, it should
@@ -31,6 +33,7 @@ class BaseMonitor(object):
   TYPE = None
   UID = None  # Can be set to any value guaranteed to be unique, a uuid.uuid4() is recommended
   SOURCES = None
+  PULL_PROCS = False
   SERVICES = None
 
   def __init__(self, backoff=None, logger=None):
@@ -72,7 +75,6 @@ class BaseMonitor(object):
     """
 
     monitor_data = copy.copy(data)
-    monitor_data.pop('extra', None)
     monitor_data['timestamp'] = time.time()
     self.data_points.append(monitor_data)
 
@@ -154,14 +156,12 @@ class BaseMonitor(object):
 
     raise NotImplementedError
 
-  def extra_alert_data(self, source, data):
+  def extra_alert_data(self, source):
     """Finds additional information that should be sent when an alert is fired
     for this monitor. This should be defined by a child class.
 
     Args:
       source: The source of the fired alert.
-      data: A dictionary of any additional information generated from the monitor
-          while checking its sources.
     """
 
     pass
@@ -292,6 +292,12 @@ class IntervalMixin(object):
     return delta
 
 
+class ProcessMixin(object):
+  """Mixin class for pulling current processes data on alert."""
+
+  PULL_PROCS = True
+
+
 class UsageMonitor(IntervalMixin, BaseMonitor):
   """Base class for all "usage" type monitors."""
 
@@ -326,9 +332,6 @@ class UsageMonitor(IntervalMixin, BaseMonitor):
         self.alert_counters[source] += 1
         if self.alert_counters[source] >= self.FLOP_PROTECTION_COUNTER:
           # Send an alert to the server with any extra information for this source
-          extra_data = data.pop('extra', {}).get(source, {})
-          extra_alert_data = self.extra_alert_data(source)
-          extra_data.update(extra_alert_data)
           alert = {
               'threshold': threshold,
               'current_usage': usage,
@@ -340,8 +343,12 @@ class UsageMonitor(IntervalMixin, BaseMonitor):
                   'source': source,
                   'source_type': self.SOURCES[source],
               },
-              'event_data': extra_data
+              'event_data': self.extra_alert_data(source),
           }
+          if self.PULL_PROCS:
+            procs = hiveary.info.system.pull_processes()
+            alert['current_processes'] = procs
+
           self.send_alert(alert)
 
           # Put a delay on the next alert to prevent a flood of alert messages
@@ -386,7 +393,6 @@ class StatusMonitor(IntervalMixin, BaseMonitor):
         self.logger.debug('Current %s state is %s, expected state is %s', source,
                           current_state, expected_state)
 
-        extra = data.pop('extra', {})
         alert = {
             'expected_state': expected_state,
             'current_state': current_state,
@@ -397,7 +403,7 @@ class StatusMonitor(IntervalMixin, BaseMonitor):
                 'type': self.TYPE,
                 'source': source,
             },
-            'event_data': self.extra_alert_data(source, extra) or {},
+            'event_data': self.extra_alert_data(source),
         }
         self.send_alert(alert)
         # Put a delay on the next alert to prevent a flood of alert messages

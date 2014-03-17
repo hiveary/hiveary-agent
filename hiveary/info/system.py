@@ -383,8 +383,8 @@ def pull_processes(top=None, top_number=5):
     top_number: Number of top processes to return for the given resource. Only
         valid when top is not None.
   Returns:
-    Returns a tuple of (all processes, top processes).
-    Each process in the list is a dictionary with nicode keys containing
+    A list of the processes requested
+    Each process in the list is a dictionary with unicode keys containing
     a large amount of detailed information for the process. Example:
 
     [
@@ -449,6 +449,7 @@ def pull_processes(top=None, top_number=5):
   processes = []
   for p in psutil.process_iter():
     try:
+      # TODO I believe this handled namedtuples, find a better way to do this.
       processes.append(simplejson.loads(simplejson.dumps(p.as_dict())))
     except psutil.NoSuchProcess:
       # Likely poor timing for a terminating process, not worth logging
@@ -465,9 +466,11 @@ def pull_processes(top=None, top_number=5):
   if top:
     full_top_procs = sorted(processes, key=lambda p: p[top], reverse=True)
     top_procs = full_top_procs[:top_number]
+  else:
+    top_procs = processes
 
   logger.debug('Retrieved the running processes')
-  return processes, top_procs
+  return top_procs
 
 
 def pull_update_settings():
