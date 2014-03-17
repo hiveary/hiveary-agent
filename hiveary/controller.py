@@ -310,7 +310,7 @@ class RealityAuditor(daemon.Daemon):
     self.network_controller.debug_mode = stored_config['debug']
     self.network_controller.disable_ssl_verification = stored_config['disable_ssl_verify']
     self.network_controller.hostname = socket.getfqdn()
-    self.network_controller.owner = stored_config.get('username')
+    self.network_controller.owner = stored_config.get('account')
     self.network_controller.access_token = stored_config.get('access_token')
     self.network_controller.remote_host = stored_config.get('server') or self.REMOTE_HOST
     self.network_controller.amqp_server = stored_config.get('amqp_server') or 'amqp.{domain}'.format(

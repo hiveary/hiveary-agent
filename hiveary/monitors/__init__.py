@@ -28,7 +28,6 @@ class BaseMonitor(object):
   AGGREGATION_TIMER = 1800  # 30 minutes
   FLOP_PROTECTION_COUNTER = 6
   MONITOR_TIMER = 1
-  DEFAULT_ALERT_BACKOFF = 3600  # Delay between similar alerts, in seconds
   NAME = 'base'
   TYPE = None
   UID = None  # Can be set to any value guaranteed to be unique, a uuid.uuid4() is recommended
@@ -53,15 +52,13 @@ class BaseMonitor(object):
 
     self.logger.info('Monitoring the following sources: %s', self.SOURCES)
 
-    self.backoff = backoff or self.DEFAULT_ALERT_BACKOFF
-    self.logger.info('Using an alert backoff of %d seconds', self.backoff)
-
     self.expected_values = {}
     self.data_points = []
 
     self.send_alert = None
-    self.alert_counters = collections.defaultdict(lambda: 0)
-    self.alert_delays = {}
+    self.failing_alert_counters = collections.defaultdict(lambda: 0)
+    self.passing_alert_counters = collections.defaultdict(lambda: 0)
+    self.alert_status = collections.defaultdict(lambda: False)
     self.livestreams = {}
 
   def store_data_point(self, data):
@@ -317,45 +314,51 @@ class UsageMonitor(IntervalMixin, BaseMonitor):
     now = time.time()
 
     for source in self.SOURCES.keys():
-      delay = self.alert_delays.get(source)
       threshold = self.expected_values.get(source)
       usage = data.get(source)
+      source_is_failing = self.alert_status.get(source)
+      alert = {
+          'threshold': threshold,
+          'current_usage': usage,
+          'timestamp': now,
+          'monitor': {
+              'id': self.UID,
+              'name': self.NAME,
+              'type': self.TYPE,
+              'source': source,
+              'source_type': self.SOURCES[source],
+          },
+      }
 
-      if delay and delay <= now:
-        self.alert_delays.pop(delay)
-        delay = None
-
-      if threshold and not delay and usage >= threshold:
-        self.logger.debug('Current %s usage at %s, threshold is %s', source,
+      # Handle case where source status is currently passing, and threshold is exceeded
+      if threshold and usage >= threshold and not source_is_failing:
+        self.logger.debug('Current %s usage at %s, threshold is %s, trending towards fail', source,
                           usage, threshold)
 
-        self.alert_counters[source] += 1
-        if self.alert_counters[source] >= self.FLOP_PROTECTION_COUNTER:
+        self.failing_alert_counters[source] += 1
+        if self.failing_alert_counters[source] >= self.FLOP_PROTECTION_COUNTER:
           # Send an alert to the server with any extra information for this source
-          alert = {
-              'threshold': threshold,
-              'current_usage': usage,
-              'timestamp': now,
-              'monitor': {
-                  'id': self.UID,
-                  'name': self.NAME,
-                  'type': self.TYPE,
-                  'source': source,
-                  'source_type': self.SOURCES[source],
-              },
-              'event_data': self.extra_alert_data(source),
-          }
+          alert['event_data'] = self.extra_alert_data(source),
+          alert['failing'] = self.alert_status[source] = True
           if self.PULL_PROCS:
             procs = hiveary.info.system.pull_processes()
             alert['current_processes'] = procs
 
           self.send_alert(alert)
+          self.failing_alert_counters[source] = 0
 
-          # Put a delay on the next alert to prevent a flood of alert messages
-          self.alert_delays[source] = now + self.backoff
-          self.alert_counters[source] = 0
+      # Handle case where source status is currently passing and threshold is not exceeded
+      elif threshold and usage < threshold and source_is_failing:
+        self.logger.debug('Current %s usage at %s, threshold is %s, trending towards pass', source,
+                          usage, threshold)
+        self.passing_alert_counters[source] += 1
+        if self.passing_alert_counters[source] >= self.FLOP_PROTECTION_COUNTER:
+          alert['failing'] = self.alert_status[source] = False
+          self.send_alert(alert)
+          self.passing_alert_counters[source] = 0
       else:
-        self.alert_counters[source] = 0
+        # No potential change, reset all counters
+        self.passing_alert_counters[source] = self.failing_alert_counters[source] = 0
 
 
 class LogMonitor(BaseMonitor):
@@ -381,30 +384,31 @@ class StatusMonitor(IntervalMixin, BaseMonitor):
     now = time.time()
 
     for source in self.SOURCES:
-      delay = self.alert_delays.get(source)
       expected_state = self.expected_values.get(source)
       current_state = data.get(source)
+      alert = {
+          'expected_state': expected_state,
+          'current_state': current_state,
+          'timestamp': now,
+          'monitor': {
+              'id': self.UID,
+              'name': self.NAME,
+              'type': self.TYPE,
+              'source': source,
+          },
+      }
+      source_is_failing = self.alert_status.get(source)
 
-      if delay and delay <= now:
-        self.alert_delays.pop(delay)
-        delay = None
-
-      if expected_state and not delay and expected_state != current_state:
-        self.logger.debug('Current %s state is %s, expected state is %s', source,
+      if not source_is_failing and expected_state and expected_state != current_state:
+        self.logger.debug('Current %s state is %s, expected state is %s, check failing', source,
                           current_state, expected_state)
 
-        alert = {
-            'expected_state': expected_state,
-            'current_state': current_state,
-            'timestamp': now,
-            'monitor': {
-                'id': self.UID,
-                'name': self.NAME,
-                'type': self.TYPE,
-                'source': source,
-            },
-            'event_data': self.extra_alert_data(source),
-        }
+        alert['failing'] = True
+        alert['event_data'] = self.extra_alert_data(source),
         self.send_alert(alert)
-        # Put a delay on the next alert to prevent a flood of alert messages
-        self.alert_delays[source] = now + self.backoff
+
+      elif source_is_failing and expected_state and expected_state == current_state:
+        self.logger.debug('Current %s state is %s, expected state is %s, check passing', source,
+                          current_state, expected_state)
+        alert['failing'] = False
+        self.send_alert(alert)

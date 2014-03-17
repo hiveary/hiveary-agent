@@ -1,4 +1,6 @@
 {
-  "username": "ashketchum",
+  "account": "ashketchum",
   "access_token": "GOTTACATCHEMALL"
+  "services": ["trainer"],
+  "stack": "leaf green"
 }

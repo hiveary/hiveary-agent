@@ -204,7 +204,7 @@ def main(args):
     sys.exit(2)
 
   # Check for bad config values
-  if (not stored_config or not stored_config.get('account_name')
+  if (not stored_config or not stored_config.get('account')
       or not stored_config.get('access_token') or not stored_config.get('services')
       or not stored_config.get('stack')):
     logger.error('Invalid config file')

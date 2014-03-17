@@ -76,7 +76,7 @@ class NetworkController(object):
 
     self.monitors = {}
 
-  def ensure_internet_connection(self, test_url='http://198.41.189.27'):
+  def ensure_internet_connection(self, test_url='http://google.com'):
     """Blocks until there is an active connection to the public internet.
     Uses an IP address by default, since DNS lookups can cause urllib2 to
     block for a while and eat up system resources while doing so."""
