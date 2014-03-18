@@ -136,6 +136,7 @@ class RealityAuditor(daemon.Daemon):
     data['version'] = __version__
     data['host_id'] = self.network_controller.obj_id
     data['stack'] = self.STACK
+    data['services'] = self.SERVICES
     data['monitors'] = []
     for monitor in self.monitors:
       monitor_data = {
@@ -143,8 +144,8 @@ class RealityAuditor(daemon.Daemon):
           'sources': monitor.SOURCES,
           'id': monitor.UID,
           'type': monitor.TYPE,
+          'services': monitor.SERVICES
       }
-      monitor_data['services'] = monitor.SERVICES or self.SERVICES
       if monitor.TYPE == 'status':
         monitor_data['states'] = monitor.STATES
 
