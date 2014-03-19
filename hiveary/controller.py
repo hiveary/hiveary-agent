@@ -145,6 +145,7 @@ class RealityAuditor(daemon.Daemon):
           'id': monitor.UID,
           'type': monitor.TYPE,
           'services': monitor.SERVICES
+          'importance': monitor.IMPORTANCE
       }
       if monitor.TYPE == 'status':
         monitor_data['states'] = monitor.STATES

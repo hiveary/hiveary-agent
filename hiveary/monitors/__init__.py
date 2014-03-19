@@ -26,6 +26,7 @@ class BaseMonitor(object):
   be subclassed with at least get_data defined."""
 
   AGGREGATION_TIMER = 1800  # 30 minutes
+  IMPORTANCE = 5 # How "mission critical" this monitor is on a scale of 1-10
   FLOP_PROTECTION_COUNTER = 6
   MONITOR_TIMER = 1
   NAME = 'base'
@@ -174,6 +175,8 @@ class ExternalMonitor(BaseMonitor):
     super(ExternalMonitor, self).__init__()
 
     self.SERVICES = kwargs.pop('services', None)
+    # Clamp importance to between 1-10 with default 5
+    self.IMPORTANCE = max(1, min(kwargs.pop('importance', 5), 10))
     self.NAME = kwargs.pop('name')
     self.get_data_command = shlex.split(kwargs.pop('get_data'))
     self.extra_data_command = shlex.split(kwargs.pop('extra_data', ''))
