@@ -144,7 +144,7 @@ class RealityAuditor(daemon.Daemon):
           'sources': monitor.SOURCES,
           'id': monitor.UID,
           'type': monitor.TYPE,
-          'services': monitor.SERVICES
+          'services': monitor.SERVICES,
           'importance': monitor.IMPORTANCE
       }
       if monitor.TYPE == 'status':
@@ -248,7 +248,7 @@ class RealityAuditor(daemon.Daemon):
           continue
 
         methods = {}
-        MonitorClass = type(classname, (monitors.ExternalMonitor, base_class, monitors.PollingMixin), methods)
+        MonitorClass = type(classname, (monitors.PollingMixin, base_class, monitors.ExternalMonitor), methods)
         try:
           monitor = MonitorClass(**config)
         except Exception as e:
@@ -269,12 +269,10 @@ class RealityAuditor(daemon.Daemon):
     monitor.send_alert = self.network_controller.publish_alert_message
 
     # Check if the monitor should run in a loop
-    if monitor.MONITOR_TIMER is not None:
-      self.start_loop(monitor.MONITOR_TIMER, monitor.run)
+    if monitor.DATA_INTERVAL is not None:
+      self.start_loop(monitor.DATA_INTERVAL, monitor.run, self.network_controller)
     else:
-      reactor.callInThread(monitor.run)
-
-    self.start_aggregation_loop(monitor)
+      reactor.callInThread(monitor.run, self.network_controller)
 
   def signal_handler(self, signum, stackframe):
     """Handles a SIGTERM or SIGINT sent to the process.
@@ -348,26 +346,6 @@ class RealityAuditor(daemon.Daemon):
     with open(filename, 'w') as file_desc:
       json.dump(config, file_desc, indent=2)
 
-  def start_aggregation_loop(self, monitor):
-    """Starts the aggregation loop, setting it up to use the exact intervals
-    if the passed monitor uses intervals.
-
-    Args:
-      monitor: The monitor object. Must be a subclass of BaseMonitor.
-    """
-
-    if hasattr(monitor, 'next_interval'):
-      # Only start aggregating data at a specified time to make sure that we
-      # maintain the same time intervals. The first run will contain a partial
-      # period if we have data points from at least half that period.
-      delta = monitor.next_interval()
-      self.logger.debug('Starting %s aggregation loop in %s seconds', monitor.NAME, delta)
-    else:
-      delta = monitor.AGGREGATION_TIMER
-
-    reactor.callLater(int(delta), self.start_loop,
-                      monitor.AGGREGATION_TIMER,
-                      monitor.send_data, self.network_controller)
 
   def start_loop(self, timer, func, *args, **kwargs):
     """Continuously loop the passed function.
