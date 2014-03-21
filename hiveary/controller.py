@@ -132,7 +132,8 @@ class RealityAuditor(daemon.Daemon):
       self.start_monitor(monitor)
 
     # Send the first data dump
-    data = hiveary.info.system.pull_all()
+    data = {}
+    data['info'] = hiveary.info.system.pull_all()
     data['version'] = __version__
     data['host_id'] = self.network_controller.obj_id
     data['stack'] = self.STACK
